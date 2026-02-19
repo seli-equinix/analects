@@ -1,0 +1,85 @@
+# Confucius Code Agent (CCA) Stack
+# Deployed on Spark1 (192.168.4.205) via docker compose (NOT Swarm)
+#
+# Usage:
+#   Build:       docker compose -f cca-compose.yml build
+#   REPL:        docker compose -f cca-compose.yml run --rm cca
+#   Shell:       docker compose -f cca-compose.yml run --rm cca bash
+#   SWE-bench:   docker compose -f cca-compose.yml run --rm cca-swebench
+#
+# LLM Backend:
+#   By default points at local vLLM on Spark2 (OpenAI-compatible).
+#   Set OPENAI_API_KEY + OPENAI_BASE_URL to use a different provider.
+
+services:
+  # Interactive CCA agent (REPL mode)
+  cca:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cca:latest
+    container_name: cca
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    environment:
+      # Local vLLM as OpenAI-compatible backend
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.4.208:8000/v1}
+    network_mode: host
+    volumes:
+      # Mount workspace for file operations
+      - ${CCA_WORKSPACE:-/home/seli/code}:/workspace:rw
+      # Persist session data across runs
+      - cca-sessions:/home/cca/.confucius
+    working_dir: /workspace
+
+  # CCA dev container (source mounted for live editing)
+  cca-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cca:latest-dev
+    container_name: cca-dev
+    stdin_open: true
+    tty: true
+    profiles:
+      - dev
+    env_file:
+      - .env
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.4.208:8000/v1}
+    network_mode: host
+    volumes:
+      - ${CCA_WORKSPACE:-/home/seli/code}:/workspace:rw
+      - cca-sessions:/home/cca/.confucius
+      # Mount source for live editing (no rebuild needed)
+      - ./confucius:/app/confucius:ro
+      - ./scripts:/app/scripts:ro
+    working_dir: /workspace
+
+  # SWE-bench runner
+  cca-swebench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cca:latest
+    container_name: cca-swebench
+    profiles:
+      - swebench
+    env_file:
+      - .env
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.4.208:8000/v1}
+    network_mode: host
+    entrypoint: ["python", "-m", "scripts.run_swebench"]
+    volumes:
+      - ${CCA_WORKSPACE:-/home/seli/code}:/workspace:rw
+      - cca-sessions:/home/cca/.confucius
+
+volumes:
+  cca-sessions:
+    driver: local
