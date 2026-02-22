@@ -107,7 +107,7 @@ services:
       - QDRANT_URL=http://192.168.4.205:6333
       - EMBEDDING_URL=http://192.168.4.205:8200
     network_mode: host
-    entrypoint: ["confucius", "serve", "--port", "8100"]
+    entrypoint: ["confucius", "serve", "--port", "8500"]
     volumes:
       - ${CCA_WORKSPACE:-/home/seli/code}:/workspace:rw
       - cca-sessions:/home/cca/.confucius
