@@ -23,7 +23,8 @@ from ...orchestrator.extensions.plan.llm import LLMCodingArchitectExtension
 from ...orchestrator.extensions.solo import SoloModeExtension
 from ...orchestrator.types import OrchestratorInput
 from .commands import get_allowed_commands
-from .llm_params import GPT5_2_THINKING
+from ...core.config import get_llm_params
+from .llm_params import GPT5_2_THINKING, QWEN3_80B_CODER
 from .reminders import TodoReminder
 from .tasks import get_task_definition
 
@@ -82,7 +83,7 @@ class CodeAssistEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
 
         orchestrator = AnthropicLLMOrchestrator(
             llm_params=[
-                GPT5_2_THINKING,
+                get_llm_params("coder", default=GPT5_2_THINKING),
             ],
             extensions=extensions,
             raw_output_parser=None,
