@@ -66,15 +66,15 @@ def _resolve_served_model_name() -> str:
 
     Returns the underlying LLM model name so clients like Open WebUI
     and Continue.dev see a recognizable model in their dropdown.
-    Falls back to 'cca-agent' if config is unavailable.
+    Raises on failure — if config is broken, the server cannot function.
     """
-    try:
-        params = get_llm_params("coder")
-        if params.model:
-            return params.model
-    except Exception as e:
-        logger.warning(f"Could not resolve model name from config: {e}")
-    return "cca-agent"
+    params = get_llm_params("coder")
+    if not params.model:
+        raise RuntimeError(
+            "CCA config has no model name for 'coder' role. "
+            "Check config.toml [providers.*.coder] section."
+        )
+    return params.model
 
 
 # The model name advertised via /v1/models — resolved once at import time
