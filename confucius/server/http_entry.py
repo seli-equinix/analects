@@ -40,6 +40,7 @@ from ..orchestrator.extensions.solo import SoloModeExtension
 from ..orchestrator.types import OrchestratorInput
 from ..analects.code.commands import get_allowed_commands
 from ..analects.code.tasks import get_task_definition
+from .utility_tools import UtilityToolsExtension
 
 
 def _get_functions() -> list[Callable[..., Any]]:
@@ -115,6 +116,9 @@ class HttpCodeAssistEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         # INJECT: User tools extension (identify_user, remember_user_fact, etc.)
         if self._user_extension is not None:
             extensions.append(self._user_extension)
+
+        # INJECT: Utility tools (web_search, fetch_url_content)
+        extensions.append(UtilityToolsExtension())
 
         # Same orchestrator invocation as CLI mode
         orchestrator = AnthropicLLMOrchestrator(

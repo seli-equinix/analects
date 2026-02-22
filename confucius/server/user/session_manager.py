@@ -1857,3 +1857,395 @@ class UserSessionManager:
                     "I'll remember you by either name."
                 ),
             }
+
+    # ======================================================================
+    # High-level user operations (consolidated from tools_extension)
+    # ======================================================================
+
+    async def identify_user(
+        self,
+        name: str,
+        session: Session,
+        client_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Identify user by name — alias check, find-or-create, link session.
+
+        Consolidates logic previously in tools_extension._handle_identify_user.
+        Returns a dict suitable for JSON serialisation back to the LLM.
+        """
+        if not name:
+            return {"error": "name is required"}
+
+        # Check alias consolidation first
+        consolidation = self.detect_alias_consolidation(name)
+        if consolidation:
+            result = await self._handle_alias_consolidation(
+                consolidation, session, client_type
+            )
+            user = result.get("user")
+            if user:
+                return {
+                    "status": "identified",
+                    "display_name": user.display_name,
+                    "action": result.get("action"),
+                    "session_count": user.session_count,
+                }
+            return {
+                "status": "consolidation",
+                "message": result.get(
+                    "message", "Alias consolidation completed"
+                ),
+            }
+
+        # Try to find existing user
+        existing = await self.find_user_by_name(name)
+        if existing:
+            await self.link_session_to_user(session, existing, client_type)
+            return {
+                "status": "welcome_back",
+                "display_name": existing.display_name,
+                "session_count": existing.session_count,
+                "facts": existing.facts,
+                "preferences": existing.preferences,
+            }
+
+        # Create new profile
+        profile = UserProfile(
+            user_id=str(uuid.uuid4()),
+            display_name=name.capitalize(),
+            aliases=[name.lower()],
+            known_clients=[client_type] if client_type else [],
+            session_count=1,
+        )
+        await self.save_user_profile(profile)
+        await self.link_session_to_user(session, profile, client_type)
+        return {
+            "status": "new_user",
+            "display_name": profile.display_name,
+            "user_id": profile.user_id,
+        }
+
+    async def infer_and_link_user(
+        self, message: str, session: Session
+    ) -> Dict[str, Any]:
+        """Semantic user matching + auto-link if high confidence.
+
+        Consolidates logic previously in tools_extension._handle_infer_user.
+        """
+        if not message:
+            return {"error": "message is required"}
+
+        result = await self._infer_user_from_message(message, session)
+        if result and result.get("user"):
+            user = result["user"]
+            confidence = result["confidence"]
+            action = result["action"]
+
+            if action == "auto_link":
+                await self.link_session_to_user(session, user)
+                return {
+                    "status": "auto_linked",
+                    "display_name": user.display_name,
+                    "confidence": confidence,
+                }
+            elif action == "ask":
+                return {
+                    "status": "possible_match",
+                    "display_name": user.display_name,
+                    "confidence": confidence,
+                }
+
+        return {"status": "no_match"}
+
+    async def get_session_context(
+        self,
+        session: Session,
+        critical_facts: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build comprehensive session + user context.
+
+        Queries Qdrant for authoritative profile (not just local cache).
+        Accepts critical facts from Redis for infrastructure context.
+        """
+        result: Dict[str, Any] = {
+            "session": {
+                "session_id": session.session_id[:16] + "...",
+                "identified": session.identified,
+                "message_count": session.message_count,
+                "client_type": getattr(session, "client_type", None),
+            }
+        }
+
+        if session.identified and session.user_id:
+            # Pull from Qdrant (authoritative) → falls back to local cache
+            profile = await self._get_user_profile(session.user_id)
+            if profile:
+                result["user"] = {
+                    "display_name": profile.display_name,
+                    "user_id": profile.user_id,
+                    "session_count": profile.session_count,
+                    "facts": profile.facts or {},
+                    "preferences": profile.preferences or {},
+                    "skills": profile.skills or [],
+                    "aliases": profile.aliases or [],
+                    "known_clients": profile.known_clients or [],
+                    "last_seen": profile.last_seen,
+                }
+        else:
+            result["user"] = None
+            result["hint"] = (
+                "User not yet identified. "
+                "Use identify_user or infer_user."
+            )
+
+        # Include critical facts if provided
+        if critical_facts:
+            result["critical_facts"] = critical_facts
+
+        return result
+
+    # ======================================================================
+    # Profile CRUD for manage_user_profile tool
+    # ======================================================================
+
+    async def view_user_profile(self, user_id: str) -> Dict[str, Any]:
+        """Return full profile as dict."""
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        return {
+            "user_id": profile.user_id,
+            "display_name": profile.display_name,
+            "email": profile.email,
+            "aliases": profile.aliases,
+            "facts": profile.facts,
+            "preferences": profile.preferences,
+            "skills": profile.skills,
+            "session_count": profile.session_count,
+            "known_clients": profile.known_clients,
+            "created_at": profile.created_at,
+            "last_seen": profile.last_seen,
+            "session_history_count": len(profile.session_history),
+        }
+
+    async def update_user_facts_batch(
+        self, user_id: str, data: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Batch update multiple facts."""
+        if not data:
+            return {"error": "data is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        profile.facts.update(data)
+        profile.last_seen = time.time()
+        await self.save_user_profile(profile)
+        return {"updated": data, "all_facts": profile.facts}
+
+    async def remove_user_fact(
+        self, user_id: str, key: str
+    ) -> Dict[str, Any]:
+        """Remove a single fact by key."""
+        if not key:
+            return {"error": "key is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        removed = profile.facts.pop(key, None)
+        if removed is None:
+            return {
+                "error": f"Fact '{key}' not found",
+                "available_keys": list(profile.facts.keys()),
+            }
+        await self.save_user_profile(profile)
+        return {
+            "removed": key,
+            "was": removed,
+            "remaining_facts": profile.facts,
+        }
+
+    async def update_user_preferences_batch(
+        self, user_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Batch update multiple preferences."""
+        if not data:
+            return {"error": "data is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        profile.preferences.update(data)
+        profile.last_seen = time.time()
+        await self.save_user_profile(profile)
+        return {"updated": data, "all_preferences": profile.preferences}
+
+    async def remove_user_preference(
+        self, user_id: str, key: str
+    ) -> Dict[str, Any]:
+        """Remove a single preference by key."""
+        if not key:
+            return {"error": "key is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        removed = profile.preferences.pop(key, None)
+        if removed is None:
+            return {
+                "error": f"Preference '{key}' not found",
+                "available_keys": list(profile.preferences.keys()),
+            }
+        await self.save_user_profile(profile)
+        return {
+            "removed": key,
+            "was": removed,
+            "remaining_preferences": profile.preferences,
+        }
+
+    async def add_user_skill(
+        self, user_id: str, value: str
+    ) -> Dict[str, Any]:
+        """Add a skill to the user's profile."""
+        if not value:
+            return {"error": "value is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        if value not in profile.skills:
+            profile.skills.append(value)
+            await self.save_user_profile(profile)
+        return {"skills": profile.skills}
+
+    async def remove_user_skill(
+        self, user_id: str, value: str
+    ) -> Dict[str, Any]:
+        """Remove a skill from the user's profile."""
+        if not value:
+            return {"error": "value is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        if value in profile.skills:
+            profile.skills.remove(value)
+            await self.save_user_profile(profile)
+            return {"removed": value, "skills": profile.skills}
+        return {
+            "error": f"Skill '{value}' not found",
+            "available": profile.skills,
+        }
+
+    async def add_user_alias(
+        self, user_id: str, value: str
+    ) -> Dict[str, Any]:
+        """Add alias — re-embeds the context vector."""
+        if not value:
+            return {"error": "value is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        if value.lower() not in [a.lower() for a in profile.aliases]:
+            profile.aliases.append(value.lower())
+            await self.save_user_profile(
+                profile, update_context_embedding=True
+            )
+        return {"aliases": profile.aliases}
+
+    async def remove_user_alias(
+        self, user_id: str, value: str
+    ) -> Dict[str, Any]:
+        """Remove alias — re-embeds the context vector."""
+        if not value:
+            return {"error": "value is required"}
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+        lower_aliases = [a.lower() for a in profile.aliases]
+        if value.lower() in lower_aliases:
+            idx = lower_aliases.index(value.lower())
+            profile.aliases.pop(idx)
+            await self.save_user_profile(
+                profile, update_context_embedding=True
+            )
+            return {"removed": value, "aliases": profile.aliases}
+        return {
+            "error": f"Alias '{value}' not found",
+            "available": profile.aliases,
+        }
+
+    async def delete_user_profile(
+        self, user_id: str, confirm_delete: bool = False
+    ) -> Dict[str, Any]:
+        """Delete user from Qdrant + local cache.
+
+        Requires confirm_delete=True to actually delete.
+        """
+        profile = await self._get_user_profile(user_id)
+        if not profile:
+            return {"error": f"User {user_id} not found"}
+
+        if not confirm_delete:
+            return {
+                "error": (
+                    "Set confirm_delete=true to permanently "
+                    "delete this profile"
+                ),
+                "user": profile.display_name,
+                "data_to_lose": {
+                    "facts": len(profile.facts),
+                    "preferences": len(profile.preferences),
+                    "skills": len(profile.skills),
+                    "sessions": profile.session_count,
+                },
+            }
+
+        # Delete from Qdrant (sync client)
+        if self._qdrant is not None:
+            from qdrant_client.http import models
+
+            for coll in (PROFILES_COLLECTION, CONTEXTS_COLLECTION):
+                try:
+                    self._qdrant.delete(
+                        collection_name=coll,
+                        points_selector=models.FilterSelector(
+                            filter=models.Filter(
+                                must=[
+                                    models.FieldCondition(
+                                        key="user_id",
+                                        match=models.MatchValue(
+                                            value=user_id
+                                        ),
+                                    )
+                                ]
+                            )
+                        ),
+                    )
+                except Exception:
+                    pass
+
+        self._local_profiles.pop(user_id, None)
+        logger.info(
+            "Deleted user profile: %s (%s)",
+            user_id,
+            profile.display_name,
+        )
+        return {
+            "deleted": True,
+            "user_id": user_id,
+            "display_name": profile.display_name,
+        }
+
+    async def list_all_user_summaries(self) -> Dict[str, Any]:
+        """List all user profiles (summary view)."""
+        users = await self.get_all_users()
+        return {
+            "count": len(users),
+            "users": [
+                {
+                    "user_id": u.user_id,
+                    "display_name": u.display_name,
+                    "session_count": u.session_count,
+                    "aliases": u.aliases,
+                    "skills": u.skills,
+                    "last_seen": u.last_seen,
+                }
+                for u in users
+            ],
+        }

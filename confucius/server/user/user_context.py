@@ -69,7 +69,8 @@ def build_user_context(
 ═══════════════════════════════════════════════════
     RECOGNIZED USER - BE NATURAL AND FRIENDLY
 ═══════════════════════════════════════════════════
-You're chatting with **{user.display_name}** - a returning user you've helped {user.session_count} times before.
+You're chatting with **{user.display_name}** - a returning user \
+you've helped {user.session_count} times before.
 
 IMPORTANT - NATURAL CONVERSATION STYLE:
 - Greet them warmly by name, like reconnecting with a colleague
@@ -81,6 +82,7 @@ IMPORTANT - NATURAL CONVERSATION STYLE:
 Use **identify_user** if their identity changes.
 Use **remember_user_fact** to save important new information they share.
 Use **update_user_preference** if they express preferences about responses.
+Use **manage_user_profile** to view, update, or delete user data when asked.
 """
     sections.append(personalization)
 
@@ -100,6 +102,7 @@ This user hasn't been identified yet. You have tools to help:
 - **infer_user**: Check if their message matches a known user's context
 - **identify_user**: If they say "I'm [name]" or "this is [name]", use this to link them
 - **get_user_context**: Check current session/user status
+- **manage_user_profile**: View, update, or delete user profile data
 
 Once identified, you'll have access to their saved facts and preferences!
 """
@@ -117,4 +120,5 @@ def build_uncertain_context(
 This user's message seems familiar (matches {potential_name} at {confidence * 100:.0f}% confidence).
 If they seem like a returning user, you might ask if they are {potential_name}.
 You can use **identify_user** to confirm their identity.
+You can use **manage_user_profile** to view or manage their data once identified.
 """

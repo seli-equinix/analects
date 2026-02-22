@@ -272,6 +272,7 @@ async def chat_completions(
     user_ext = UserToolsExtension(
         session_mgr=user_session_mgr,
         session=session,
+        critical_facts=critical_facts_extractor,
     )
 
     # 7. Create HTTP entry with user context + tools

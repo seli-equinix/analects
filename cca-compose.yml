@@ -106,6 +106,7 @@ services:
       - REDIS_URL=redis://:Loveme-sex64@192.168.4.205:6379/0
       - QDRANT_URL=http://192.168.4.205:6333
       - EMBEDDING_URL=http://192.168.4.205:8200
+      - SEARXNG_URL=http://192.168.4.205:8888
     network_mode: host
     entrypoint: ["confucius", "serve", "--port", "8500"]
     volumes:
