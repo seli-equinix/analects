@@ -6,6 +6,7 @@ from traceback import extract_tb
 
 from typing import Any
 
+from ..core.config import CCAConfigError
 from ..core.entry.base import EntryInput
 
 from ..core.entry.entry import Entry
@@ -23,6 +24,12 @@ async def run_entry_repl(cf: Confucius, entry_name: str, **kwargs: Any) -> None:
             await cf.io.on_cancel()
             if cf.exiting:
                 raise
+        except CCAConfigError as exc:
+            await cf.io.error(
+                f"Configuration Error [{exc.role}]: {exc.detail}\n"
+                f"  Config: {exc.config_path}\n"
+                f"  Fix: {exc.suggestion}"
+            )
         except Exception as exc:
             tb = exc.__traceback__
             tb_str = "\n".join(extract_tb(tb).format())

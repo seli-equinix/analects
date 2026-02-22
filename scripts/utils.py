@@ -2,6 +2,7 @@
 import sys
 import traceback
 
+from confucius.core.config import CCAConfigError
 from confucius.core.entry.base import EntryInput
 from confucius.core.entry.entry import Entry
 from confucius.lib.confucius import Confucius
@@ -25,6 +26,14 @@ async def run_agent_with_prompt(
             Entry(), EntryInput(question=prompt, entry_name=entry_name)
         )
 
+    except CCAConfigError as e:
+        print(
+            f"\nConfiguration Error [{e.role}]: {e.detail}\n"
+            f"  Config: {e.config_path}\n"
+            f"  Fix: {e.suggestion}\n",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     except Exception as e:
         print(f"Error running agent: {e}", file=sys.stderr)
         print(f"Stack trace:\n{traceback.format_exc()}", file=sys.stderr)
