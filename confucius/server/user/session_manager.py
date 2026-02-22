@@ -293,6 +293,22 @@ class UserSessionManager:
     ASK_THRESHOLD: float = 0.60  # LLM should ask via identify_user tool
     # Below ASK_THRESHOLD -> stay anonymous
 
+    @staticmethod
+    def detect_client_type(headers: Dict[str, str]) -> Optional[str]:
+        """Detect client type from HTTP request headers."""
+        user_agent = headers.get("user-agent", "").lower()
+        if "curl" in user_agent:
+            return "curl"
+        elif "continue" in user_agent or headers.get("x-continue-client"):
+            return "continue"
+        elif "vscode" in user_agent or "vs code" in user_agent:
+            return "vscode"
+        elif "python" in user_agent or "httpx" in user_agent:
+            return "python"
+        elif any(b in user_agent for b in ("chrome", "firefox", "safari", "edge")):
+            return "web"
+        return None
+
     # ------------------------------------------------------------------
     # Name extraction regex patterns (25+)
     #
