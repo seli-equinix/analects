@@ -296,7 +296,7 @@ class NoteObserver:
 
         try:
             response = await self._http_client.post(
-                f"{self._llm_url}/v1/chat/completions",
+                f"{self._llm_url}/chat/completions",
                 json={
                     "model": self._llm_model,
                     "messages": [
@@ -539,16 +539,16 @@ class NoteObserver:
                     ]
                 )
 
-            results = self._qdrant.search(
+            response = self._qdrant.query_points(
                 collection_name=NOTES_COLLECTION,
-                query_vector=embeddings[0],
+                query=embeddings[0],
                 limit=n_results,
                 query_filter=q_filter,
                 with_payload=True,
             )
 
             notes = []
-            for hit in results:
+            for hit in response.points:
                 if hit.score >= min_score and hit.payload:
                     note = dict(hit.payload)
                     note["score"] = round(hit.score, 4)

@@ -274,15 +274,15 @@ class NoteWriterExtension(ToolUseExtension):
             return "Error: failed to generate embedding"
 
         try:
-            results = self._qdrant.search(
+            response = self._qdrant.query_points(
                 collection_name=NOTES_COLLECTION,
-                query_vector=embeddings[0],
+                query=embeddings[0],
                 limit=n_results,
                 with_payload=True,
             )
 
             notes: List[Dict[str, Any]] = []
-            for hit in results:
+            for hit in response.points:
                 if hit.payload:
                     notes.append(
                         {
