@@ -36,6 +36,41 @@ class TestUserPreference:
 
         cca.cleanup_test_user(name)
 
+    def test_preference_recalled_next_session(self, cca, trace_test, judge_model):
+        """Preferences should persist and be available in the next session."""
+        name = f"PrefRecall_{uuid.uuid4().hex[:6]}"
+        sid1 = f"test-prec1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-prec2-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: set a preference
+        cca.chat(
+            f"Hi I'm {name}. I always want code examples in Python "
+            f"with type hints. Can you write a function that "
+            f"reverses a string?",
+            session_id=sid1,
+        )
+
+        # Session 2: come back, ask for code
+        message = (
+            f"Hey {name} again. Write me a function to find "
+            f"duplicates in a list."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        # Agent should produce code (validates it's still functional)
+        content_lower = result.content.lower()
+        has_code = "def " in content_lower or "```" in result.content
+        trace_test.set_attribute("cca.test.has_code", has_code)
+        assert has_code, \
+            f"Expected code in response: {result.content[:300]}"
+
+        cca.cleanup_test_user(name)
+
     def test_preference_acknowledged(self, cca, trace_test, judge_model):
         """Agent should respond with code when given a coding preference."""
         name = f"PrefAck_{uuid.uuid4().hex[:6]}"

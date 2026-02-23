@@ -90,6 +90,48 @@ class TestIdentifyUser:
 
         cca.cleanup_test_user(name)
 
+    def test_no_duplicate_on_return(self, cca, trace_test, judge_model):
+        """Coming back in a new session shouldn't create a duplicate profile."""
+        name = f"NoDup_{uuid.uuid4().hex[:6]}"
+        sid1 = f"test-dup1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-dup2-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: first visit
+        cca.chat(
+            f"Hi, I'm {name}. Can you help me write a quick "
+            f"Python script to read a CSV file?",
+            session_id=sid1,
+        )
+
+        # Session 2: come back
+        message = (
+            f"Hey it's {name} again. I need help parsing JSON this time."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        # Verify: exactly ONE user with this name
+        users_data = cca.list_users()
+        matches = [
+            u for u in users_data.get("users", [])
+            if u.get("display_name", "").lower() == name.lower()
+        ]
+        trace_test.set_attribute("cca.test.match_count", len(matches))
+        assert len(matches) == 1, \
+            f"Expected 1 user named '{name}', found {len(matches)}"
+
+        # Verify: session_count >= 2
+        user = matches[0]
+        trace_test.set_attribute("cca.test.session_count", user["session_count"])
+        assert user["session_count"] >= 2, \
+            f"Expected session_count >= 2, got {user['session_count']}"
+
+        cca.cleanup_test_user(name)
+
     def test_identify_updates_metadata(self, cca, trace_test, judge_model):
         """After identification, context_metadata should show identified."""
         name = f"MetaUser_{uuid.uuid4().hex[:6]}"

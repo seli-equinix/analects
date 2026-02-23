@@ -96,6 +96,308 @@ class TestManageProfileAlias:
         cca.cleanup_test_user(name)
 
 
+class TestManageProfileSkillVerify:
+    """Verify skills are actually stored on the profile via REST API."""
+
+    def test_skill_appears_on_profile(self, cca, trace_test, judge_model):
+        """Skills mentioned in conversation should appear on the profile."""
+        name = f"SkillCheck_{uuid.uuid4().hex[:6]}"
+        session_id = f"test-skchk-{uuid.uuid4().hex[:8]}"
+        message = (
+            f"Hi I'm {name}. I'm experienced with Python, Docker, "
+            f"and Terraform. Help me write a Dockerfile for a "
+            f"Python FastAPI app."
+        )
+
+        result = cca.chat(message, session_id=session_id, timeout=240)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        user = cca.find_user_by_name(name)
+        assert user is not None, f"User '{name}' not created"
+
+        skills_lower = [s.lower() for s in user.get("skills", [])]
+        trace_test.set_attribute("cca.test.skills", str(skills_lower))
+        has_any_skill = any(
+            s in skills_lower
+            for s in ["python", "docker", "terraform"]
+        )
+        trace_test.set_attribute("cca.test.has_expected_skill", has_any_skill)
+        assert has_any_skill, \
+            f"Expected at least one skill on profile, got: {skills_lower}"
+
+        cca.cleanup_test_user(name)
+
+    def test_remove_skill(self, cca, trace_test, judge_model):
+        """Asking to remove a skill should actually remove it from the profile."""
+        name = f"RmSkill_{uuid.uuid4().hex[:6]}"
+        sid1 = f"test-rmsk1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-rmsk2-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: create user with skills
+        cca.chat(
+            f"Hi I'm {name}. I know Python and Java. "
+            f"Write me a Python hello world.",
+            session_id=sid1,
+        )
+
+        # Session 2: ask to remove Java
+        message = (
+            f"Hey {name}, I don't really use Java anymore — can you "
+            f"remove it from my profile? Also write me a one-liner "
+            f"to get the current time."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        user = cca.find_user_by_name(name)
+        assert user is not None, f"User '{name}' not found"
+
+        skills_lower = [s.lower() for s in user.get("skills", [])]
+        trace_test.set_attribute("cca.test.skills_after", str(skills_lower))
+        java_gone = "java" not in skills_lower
+        trace_test.set_attribute("cca.test.java_removed", java_gone)
+        assert java_gone, \
+            f"Java still in skills after removal: {skills_lower}"
+
+        cca.cleanup_test_user(name)
+
+
+class TestManageProfileAliasVerify:
+    """Verify aliases are stored and removable via REST API."""
+
+    def test_alias_stored_on_profile(self, cca, trace_test, judge_model):
+        """Introducing with an alias should store it on the profile."""
+        name = f"AliasChk_{uuid.uuid4().hex[:6]}"
+        alias = f"nick_{uuid.uuid4().hex[:4]}"
+        session_id = f"test-alchk-{uuid.uuid4().hex[:8]}"
+        message = (
+            f"Hi I'm {name}, but my friends call me {alias}. "
+            f"Can you write a Python function to generate a "
+            f"random password?"
+        )
+
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        user = cca.find_user_by_name(name)
+        assert user is not None, f"User '{name}' not created"
+
+        aliases_lower = [a.lower() for a in user.get("aliases", [])]
+        trace_test.set_attribute("cca.test.aliases", str(aliases_lower))
+        has_alias = alias.lower() in aliases_lower
+        trace_test.set_attribute("cca.test.alias_stored", has_alias)
+        assert has_alias, \
+            f"Alias '{alias}' not found in profile aliases: {aliases_lower}"
+
+        cca.cleanup_test_user(name)
+
+    def test_remove_alias(self, cca, trace_test, judge_model):
+        """Asking to remove an alias should actually remove it."""
+        name = f"RmAlias_{uuid.uuid4().hex[:6]}"
+        alias = f"old_{uuid.uuid4().hex[:4]}"
+        sid1 = f"test-rmal1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-rmal2-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: create with alias
+        cca.chat(
+            f"Hi I'm {name}, also known as {alias}. "
+            f"Write me a one-liner to read environment variables.",
+            session_id=sid1,
+        )
+
+        # Session 2: ask to remove alias
+        message = (
+            f"Hey {name}. Please remove the alias {alias} from my "
+            f"profile — I don't go by that anymore. Also write a "
+            f"one-liner to get the hostname."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        user = cca.find_user_by_name(name)
+        assert user is not None, f"User '{name}' not found"
+
+        aliases_lower = [a.lower() for a in user.get("aliases", [])]
+        trace_test.set_attribute("cca.test.aliases_after", str(aliases_lower))
+        alias_gone = alias.lower() not in aliases_lower
+        trace_test.set_attribute("cca.test.alias_removed", alias_gone)
+        assert alias_gone, \
+            f"Alias '{alias}' still in profile after removal: {aliases_lower}"
+
+        cca.cleanup_test_user(name)
+
+
+class TestManageProfileRemove:
+    """Tests for removing facts and preferences from user profiles."""
+
+    def test_remove_fact(self, cca, trace_test, judge_model):
+        """After asking to forget a fact, CCA should no longer recall it."""
+        name = f"RmFact_{uuid.uuid4().hex[:6]}"
+        company = f"ForgetCorp_{uuid.uuid4().hex[:4]}"
+        sid1 = f"test-rmf1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-rmf2-{uuid.uuid4().hex[:8]}"
+        sid3 = f"test-rmf3-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: store a fact
+        cca.chat(
+            f"Hi I'm {name}. I work at {company}. "
+            f"Write me a one-liner to get the current timestamp.",
+            session_id=sid1,
+        )
+
+        # Session 2: ask to forget it
+        cca.chat(
+            f"Hey {name}, I'd rather you forget where I work — "
+            f"please remove that from my profile. "
+            f"Show me how to clear a list in Python.",
+            session_id=sid2,
+        )
+
+        # Session 3: ask about it
+        message = (
+            f"Hi {name}. Do you know where I work? "
+            f"Also write a one-liner to reverse a list."
+        )
+        result = cca.chat(message, session_id=sid3)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        content_lower = result.content.lower()
+        still_knows = company.lower() in content_lower
+        trace_test.set_attribute("cca.test.company_forgotten", not still_knows)
+        assert not still_knows, \
+            f"Agent still mentions '{company}' after removal: {result.content[:300]}"
+
+        cca.cleanup_test_user(name)
+
+    @pytest.mark.timeout(360)
+    def test_remove_preference(self, cca, trace_test, judge_model):
+        """Removing a preference should be acknowledged."""
+        name = f"RmPref_{uuid.uuid4().hex[:6]}"
+        sid1 = f"test-rmp1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-rmp2-{uuid.uuid4().hex[:8]}"
+
+        # Session 1: set a preference
+        cca.chat(
+            f"Hi I'm {name}. I prefer very detailed explanations "
+            f"with examples. Write me a function to sort a "
+            f"dictionary by value.",
+            session_id=sid1,
+        )
+
+        # Session 2: remove it
+        message = (
+            f"Hey {name}. Forget about the detailed explanations "
+            f"preference — remove it please. Write a function to "
+            f"flatten a nested list."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        cca.cleanup_test_user(name)
+
+
+class TestManageProfileViewAndDelete:
+    """View profile data and full delete lifecycle."""
+
+    @pytest.mark.timeout(360)
+    def test_view_profile_shows_data(self, cca, trace_test, judge_model):
+        """Asking for profile should show previously stored information."""
+        name = f"ViewData_{uuid.uuid4().hex[:6]}"
+        company = f"ViewCorp_{uuid.uuid4().hex[:4]}"
+        session_id = f"test-vpd-{uuid.uuid4().hex[:8]}"
+
+        # First message: introduce with lots of info
+        cca.chat(
+            f"Hi I'm {name}. I work at {company}, I know Python "
+            f"and Go, and I prefer concise code. Write me a "
+            f"function to validate an email address.",
+            session_id=session_id,
+        )
+
+        # Same session: ask to see profile
+        message = "Can you show me everything you know about me?"
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        content_lower = result.content.lower()
+        matches = sum(1 for term in [
+            name.lower(), company.lower(), "python", "go", "concise",
+        ] if term in content_lower)
+        trace_test.set_attribute("cca.test.profile_terms_found", matches)
+        assert matches >= 2, \
+            f"Expected at least 2 profile terms in response, found {matches}: {result.content[:300]}"
+
+        cca.cleanup_test_user(name)
+
+    def test_delete_and_verify_gone(self, cca, trace_test, judge_model):
+        """After deletion, user should not exist via REST API."""
+        name = f"DelGone_{uuid.uuid4().hex[:6]}"
+        sid1 = f"test-dlg1-{uuid.uuid4().hex[:8]}"
+        sid2 = f"test-dlg2-{uuid.uuid4().hex[:8]}"
+
+        # Create user
+        cca.chat(
+            f"Hi I'm {name}. I work on infrastructure. "
+            f"Write me a Python one-liner to ping a host.",
+            session_id=sid1,
+        )
+
+        user = cca.find_user_by_name(name)
+        trace_test.set_attribute("cca.test.user_exists_before", user is not None)
+        assert user is not None, f"User '{name}' not created"
+
+        # Request deletion
+        message = (
+            f"Hi {name} here. I want to delete my profile completely. "
+            f"Yes I confirm the deletion. Also show me how to "
+            f"delete a file in Python."
+        )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
+
+        trace_test.set_attribute("cca.test.response", result.content[:500])
+        assert result.content, "Agent returned empty response"
+
+        # Verify user is gone
+        user_after = cca.find_user_by_name(name)
+        trace_test.set_attribute("cca.test.user_gone", user_after is None)
+        assert user_after is None, \
+            f"User '{name}' still exists after deletion request"
+
+        # Safety cleanup if agent refused
+        if user_after:
+            cca.cleanup_test_user(name)
+
+
 class TestManageProfileListAll:
     """REST API /users endpoint."""
 
