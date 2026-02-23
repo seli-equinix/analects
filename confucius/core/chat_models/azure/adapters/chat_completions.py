@@ -336,16 +336,17 @@ def _extract_tool_calls(
 
 
 _TOOL_CALL_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL
+    r"<(?:tool_call|tools)>\s*(\{.*?\})\s*</(?:tool_call|tools)>", re.DOTALL
 )
 
 
 def _extract_inline_tool_calls(text: str) -> tuple[
     List[ant.MessageContentToolUse], str
 ]:
-    """Parse <tool_call>JSON</tool_call> blocks from vLLM text output.
+    """Parse <tool_call> or <tools> XML blocks from vLLM text output.
 
-    vLLM with Qwen3 may emit tool calls as inline XML when the
+    vLLM with Qwen3 may emit tool calls as inline XML (either
+    <tool_call>JSON</tool_call> or <tools>JSON</tools>) when the
     tool-call-parser doesn't intercept them.  This converts them to
     proper MessageContentToolUse objects so the orchestrator can
     execute them.
