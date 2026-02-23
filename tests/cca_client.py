@@ -148,6 +148,10 @@ class CCAClient:
                 span.set_attribute("cca.response_preview", result.content[:500])
                 span.set_attribute("output.value", result.content[:500])
                 span.set_attribute("cca.finish_reason", result.finish_reason)
+                if result.usage:
+                    span.set_attribute("llm.token_count.prompt", result.usage.get("prompt_tokens", 0))
+                    span.set_attribute("llm.token_count.completion", result.usage.get("completion_tokens", 0))
+                    span.set_attribute("llm.token_count.total", result.usage.get("total_tokens", 0))
                 if result.user_identified:
                     span.set_attribute("cca.user_identified", True)
                     span.set_attribute("cca.user_name", result.user_name or "")

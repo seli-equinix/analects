@@ -562,6 +562,11 @@ async def chat_completions(
                 span.set_attribute("cca.response_length", len(response_text))
                 span.set_attribute(OUTPUT_VALUE, response_text[:500])
 
+                # Estimated token counts (4 chars per token)
+                est_completion_tokens = len(response_text) // 4
+                span.set_attribute("llm.token_count.completion", est_completion_tokens)
+                span.set_attribute("llm.token_count.total", est_completion_tokens)
+
                 response = build_completion_response(
                     content=response_text,
                     model=request.model or SERVED_MODEL_NAME,
