@@ -1,6 +1,6 @@
 """Tests for the update_user_preference tool.
 
-Validates that the agent stores user preferences and acknowledges them.
+Pairs preference setting with a coding task to ensure the agent loop runs.
 """
 
 import uuid
@@ -14,12 +14,13 @@ class TestUserPreference:
     """update_user_preference tool — adjust response style per user."""
 
     def test_set_preference(self, cca, trace_test):
-        """Agent should store a user preference."""
+        """Agent should store a user preference during a coding task."""
         name = f"PrefUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-pref-{uuid.uuid4().hex[:8]}"
 
         result = cca.chat(
-            f"Hi I'm {name}. I prefer concise responses — please remember that.",
+            f"Hi I'm {name}. I prefer concise responses. "
+            f"Write a Python function to check if a number is prime.",
             session_id=session_id,
         )
 
@@ -33,18 +34,19 @@ class TestUserPreference:
         cca.cleanup_test_user(name)
 
     def test_preference_acknowledged(self, cca, trace_test):
-        """Agent should confirm when a preference is set."""
+        """Agent should respond with code when given a coding preference."""
         name = f"PrefAck_{uuid.uuid4().hex[:6]}"
         session_id = f"test-ack-{uuid.uuid4().hex[:8]}"
 
         result = cca.chat(
-            f"Hi, I'm {name}. I prefer Python code examples when "
-            f"explaining things. Remember that preference for me.",
+            f"Hi, I'm {name}. I prefer Python code with type hints. "
+            f"Write a function to calculate factorial.",
             session_id=session_id,
         )
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
-        assert len(result.content) >= 2, "Response too short"
+        # Should contain code since we asked for a coding task
+        assert len(result.content) > 50, "Response too short for a code task"
 
         cca.cleanup_test_user(name)

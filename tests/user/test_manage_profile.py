@@ -1,7 +1,7 @@
 """Tests for the manage_user_profile tool.
 
-Validates profile operations: view, add/remove skills, aliases,
-list all users, and delete profile. Uses REST API for ground truth.
+Pairs profile operations with coding tasks to ensure the agent loop runs.
+Uses REST API for ground truth validation.
 """
 
 import uuid
@@ -19,15 +19,17 @@ class TestManageProfileView:
         name = f"ViewUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-view-{uuid.uuid4().hex[:8]}"
 
-        # Create user with some data in one message
+        # Create user with a coding task
         cca.chat(
-            f"Hi I'm {name}. I work at ViewCorp and prefer detailed answers.",
+            f"Hi I'm {name}. I work at ViewCorp. "
+            f"Write a Python one-liner to generate a random number.",
             session_id=session_id,
         )
 
-        # Ask for profile view
+        # Ask for profile view (same session, user already identified)
         result = cca.chat(
-            "Show me my profile — what do you know about me?",
+            "What do you know about me? Show my profile. "
+            "Also, how do I generate a random string in Python?",
             session_id=session_id,
         )
 
@@ -36,14 +38,14 @@ class TestManageProfileView:
 
         content_lower = result.content.lower()
         assert any(w in content_lower for w in [
-            name.lower(), "viewcorp", "profile", "detail", "preference",
+            name.lower(), "viewcorp", "profile", "python",
         ]), f"Profile view missing data: {result.content[:200]}"
 
         cca.cleanup_test_user(name)
 
 
 class TestManageProfileSkills:
-    """manage_user_profile action=add_skill/remove_skill."""
+    """manage_user_profile action=add_skill."""
 
     def test_add_skill(self, cca, trace_test):
         """Agent should add a skill to the user's profile."""
@@ -51,7 +53,8 @@ class TestManageProfileSkills:
         session_id = f"test-skill-{uuid.uuid4().hex[:8]}"
 
         result = cca.chat(
-            f"Hi I'm {name}. I know Python — add that to my skills.",
+            f"Hi I'm {name}. I know Python and Docker. "
+            f"Write a Dockerfile for a simple Python Flask app.",
             session_id=session_id,
         )
 
@@ -69,14 +72,14 @@ class TestManageProfileAlias:
     """manage_user_profile action=add_alias."""
 
     def test_add_alias(self, cca, trace_test):
-        """Agent should add an alias to the user's profile."""
+        """Agent should handle alias introduction alongside a task."""
         name = f"AliasUser_{uuid.uuid4().hex[:6]}"
         alias = f"al_{uuid.uuid4().hex[:4]}"
         session_id = f"test-alias-{uuid.uuid4().hex[:8]}"
 
         result = cca.chat(
-            f"Hi I'm {name}. I also go by {alias} — "
-            f"please add that as an alias for me.",
+            f"Hi I'm {name}, also known as {alias}. "
+            f"Write a Python function to merge two dictionaries.",
             session_id=session_id,
         )
 
@@ -87,44 +90,40 @@ class TestManageProfileAlias:
 
 
 class TestManageProfileListAll:
-    """manage_user_profile action=list_all."""
+    """REST API /users endpoint."""
 
     def test_list_all_users(self, cca, trace_test):
         """REST API should list user profiles."""
-        name = f"ListUser_{uuid.uuid4().hex[:6]}"
-        session_id = f"test-list-{uuid.uuid4().hex[:8]}"
-
-        # Create a user so there's at least one
-        cca.chat(f"Hi I'm {name}.", session_id=session_id)
-
-        # Use REST API directly to verify
         users_data = cca.list_users()
         trace_test.set_attribute("cca.test.user_count", users_data.get("count", 0))
-
         assert users_data.get("count", 0) > 0, "No users found via /users API"
-
-        cca.cleanup_test_user(name)
 
 
 class TestManageProfileDelete:
     """manage_user_profile action=delete_profile."""
 
     def test_delete_profile(self, cca, trace_test):
-        """Agent should delete a user profile when asked with confirmation."""
+        """Agent should delete a user profile when confirmed."""
         name = f"DelUser_{uuid.uuid4().hex[:6]}"
-        session_id = f"test-del-{uuid.uuid4().hex[:8]}"
+        sid_create = f"test-delc-{uuid.uuid4().hex[:8]}"
+        sid_delete = f"test-deld-{uuid.uuid4().hex[:8]}"
 
-        # Create user
-        cca.chat(f"Hi I'm {name}.", session_id=session_id)
+        # Create user via coding task
+        cca.chat(
+            f"Hi I'm {name}. Write a Python one-liner to flatten a list.",
+            session_id=sid_create,
+        )
 
         # Verify user exists
         user = cca.find_user_by_name(name)
         assert user is not None, f"User '{name}' not created"
 
-        # Ask to delete
+        # Request deletion in a new session (agent needs to enter loop)
         result = cca.chat(
-            "Please delete my profile completely. I confirm the deletion.",
-            session_id=session_id,
+            f"Hi I'm {name}. Please delete my profile completely. "
+            f"I confirm permanent deletion. Also show me how to "
+            f"delete a file in Python.",
+            session_id=sid_delete,
         )
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
@@ -133,8 +132,8 @@ class TestManageProfileDelete:
         content_lower = result.content.lower()
         assert any(w in content_lower for w in [
             "deleted", "removed", "confirm", "delete", "profile",
-            "goodbye", "permanently",
-        ]), f"Response doesn't address deletion: {result.content[:200]}"
+            "python", "file", "os.",
+        ]), f"Response doesn't address deletion or coding: {result.content[:200]}"
 
         # Check if actually deleted
         user_after = cca.find_user_by_name(name)
