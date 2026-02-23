@@ -18,3 +18,14 @@ dependencies = []
 
 [project.scripts]
 confucius = "confucius.cli.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "user: User identification and profile management tests",
+    "websearch: Web search and URL fetching tests",
+    "integration: Multi-tool end-to-end integration tests",
+    "slow: Tests that take more than 60 seconds",
+]
+timeout = 600
+asyncio_mode = "auto"
