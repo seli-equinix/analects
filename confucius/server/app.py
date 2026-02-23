@@ -288,11 +288,12 @@ async def chat_completions(
             id_result = await user_session_mgr.smart_identify_on_first_message(
                 user_message, session, client_type
             )
-            logger.info(
-                "Smart ID result: identified=%s, action=%s, name=%s",
-                id_result.get("identified"),
-                id_result.get("action"),
-                id_result.get("extracted_name", ""),
+            print(
+                f"[SMART_ID] identified={id_result.get('identified')}, "
+                f"action={id_result.get('action')}, "
+                f"name={id_result.get('extracted_name', '')}, "
+                f"keys={list(id_result.keys())}",
+                flush=True,
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
@@ -310,10 +311,10 @@ async def chat_completions(
                         user = await user_session_mgr.get_user_for_session(
                             session
                         )
-                        logger.info(
-                            "Auto-created user '%s' (status=%s)",
-                            extracted_name,
-                            create_result.get("status"),
+                        print(
+                            f"[AUTO_CREATE] user='{extracted_name}', "
+                            f"status={create_result.get('status')}",
+                            flush=True,
                         )
     else:
         user = await user_session_mgr.get_user_for_session(session)
