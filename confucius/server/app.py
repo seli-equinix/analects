@@ -297,9 +297,11 @@ async def chat_completions(
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
-            elif id_result.get("action") == "asking_new":
-                # Auto-create user when name is detected — don't wait
+            elif id_result.get("action") in ("asking_new", "asking"):
+                # Auto-identify when a name is detected — don't wait
                 # for the LLM to call identify_user (unreliable).
+                # "asking_new" = new user, "asking" = potential match.
+                # identify_user() handles both: find-or-create.
                 extracted_name = id_result.get("extracted_name", "")
                 if extracted_name:
                     create_result = await user_session_mgr.identify_user(
@@ -312,7 +314,7 @@ async def chat_completions(
                             session
                         )
                         print(
-                            f"[AUTO_CREATE] user='{extracted_name}', "
+                            f"[AUTO_ID] user='{extracted_name}', "
                             f"status={create_result.get('status')}",
                             flush=True,
                         )
