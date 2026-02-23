@@ -1,8 +1,11 @@
-"""CCA AAAM test suite — Phoenix-traced integration tests.
+"""CCA test suite — Phoenix-traced integration tests.
 
-Configures OpenTelemetry to export traces to Phoenix (192.168.4.204:4317)
-under the project 'cca-aaam-tests'. Every test creates spans visible in
-the Phoenix UI at http://192.168.4.204:6006/.
+Routes traces to separate Phoenix projects:
+  - cca-user-tests:   user identification, profiles, facts, preferences
+  - cca-search-tests: web search, URL fetch, internet tools
+
+Every test creates spans visible in the Phoenix UI at
+http://192.168.4.204:6006/.
 """
 
 from __future__ import annotations
@@ -21,8 +24,11 @@ from .cca_client import CCAClient
 # ==================== Configuration ====================
 
 PHOENIX_ENDPOINT = "http://192.168.4.204:4317"
-PROJECT_NAME = "cca-aaam-tests"
 CCA_BASE_URL = "http://192.168.4.205:8500"
+
+# Two separate Phoenix projects for different test domains
+PROJECT_USER = "cca-user-tests"
+PROJECT_SEARCH = "cca-search-tests"
 
 
 # ==================== Markers ====================
@@ -38,27 +44,56 @@ def pytest_configure(config):
 # ==================== Phoenix / OpenTelemetry ====================
 
 
-@pytest.fixture(scope="session", autouse=True)
-def phoenix_tracer():
-    """Initialize OpenTelemetry with Phoenix OTLP exporter.
-
-    Creates the 'cca-aaam-tests' project in Phoenix automatically
-    when the first trace arrives.
-    """
+def _make_tracer(project_name: str) -> tuple:
+    """Create a TracerProvider + Tracer for a Phoenix project."""
     resource = Resource.create({
-        "service.name": PROJECT_NAME,
-        "openinference.project.name": PROJECT_NAME,
+        "service.name": project_name,
+        "openinference.project.name": project_name,
     })
     provider = TracerProvider(resource=resource)
     exporter = OTLPSpanExporter(endpoint=PHOENIX_ENDPOINT, insecure=True)
     provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
+    tracer = provider.get_tracer(project_name)
+    return provider, tracer
 
-    tracer = trace.get_tracer("cca-aaam-tests")
+
+@pytest.fixture(scope="session")
+def user_tracer():
+    """Tracer that routes spans to the cca-user-tests project."""
+    provider, tracer = _make_tracer(PROJECT_USER)
     yield tracer
-
-    # Flush remaining spans on shutdown
     provider.shutdown()
+
+
+@pytest.fixture(scope="session")
+def search_tracer():
+    """Tracer that routes spans to the cca-search-tests project."""
+    provider, tracer = _make_tracer(PROJECT_SEARCH)
+    yield tracer
+    provider.shutdown()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def default_tracer(user_tracer):
+    """Set the global tracer provider to user_tracer as default.
+
+    Individual test modules override via the phoenix_tracer fixture.
+    """
+    # Don't set_tracer_provider globally — we use explicit tracers
+    yield user_tracer
+
+
+@pytest.fixture
+def phoenix_tracer(request, user_tracer, search_tracer):
+    """Pick the correct tracer based on test location.
+
+    Tests in tests/websearch/ → cca-search-tests project
+    Everything else → cca-user-tests project
+    """
+    test_path = request.node.nodeid
+    if "/websearch/" in test_path:
+        return search_tracer
+    return user_tracer
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +103,6 @@ def trace_test(request, phoenix_tracer):
     Creates a root span like 'user::test_identify_new_user' so tests
     are easy to find and filter in the Phoenix UI.
     """
-    # Determine category from test path
     test_path = request.node.nodeid
     if "/user/" in test_path:
         category = "user"
@@ -83,13 +117,13 @@ def trace_test(request, phoenix_tracer):
     span_name = f"{category}::{test_name}"
 
     with phoenix_tracer.start_as_current_span(span_name) as span:
+        span.set_attribute("openinference.span.kind", "CHAIN")
         span.set_attribute("cca.test.name", test_name)
         span.set_attribute("cca.test.category", category)
         span.set_attribute("cca.test.nodeid", test_path)
 
         yield span
 
-        # Mark test result on the span
         if hasattr(request.node, "rep_call"):
             rep = request.node.rep_call
             span.set_attribute("cca.test.passed", rep.passed)
@@ -108,12 +142,13 @@ def pytest_runtest_makereport(item, call):
 
 
 @pytest.fixture(scope="session")
-def cca(phoenix_tracer):
+def cca(user_tracer):
     """CCA AAAM client with Phoenix tracing.
 
     Session-scoped: one HTTP client for the entire test run.
+    Uses user_tracer by default; individual methods accept tracer override.
     """
-    client = CCAClient(base_url=CCA_BASE_URL, tracer=phoenix_tracer)
+    client = CCAClient(base_url=CCA_BASE_URL, tracer=user_tracer)
     yield client
     client.close()
 

@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 _provider: Optional[TracerProvider] = None
 
+# OpenInference semantic convention keys (avoid hard dependency on the package)
+OPENINFERENCE_SPAN_KIND = "openinference.span.kind"
+INPUT_VALUE = "input.value"
+OUTPUT_VALUE = "output.value"
+
 
 def init_tracing() -> Optional[trace.Tracer]:
     """Initialize OpenTelemetry with Phoenix OTLP exporter.

@@ -33,7 +33,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..core.config import CCAConfigError, get_llm_params, get_router_config
-from ..core.tracing import init_tracing, shutdown_tracing, get_tracer
+from ..core.tracing import (
+    init_tracing, shutdown_tracing, get_tracer,
+    OPENINFERENCE_SPAN_KIND, INPUT_VALUE, OUTPUT_VALUE,
+)
 from ..core.entry.base import EntryInput
 from ..lib.confucius import Confucius
 from .expert_router import (
@@ -427,6 +430,8 @@ async def chat_completions(
 
             async def run_agent() -> None:
                 with tracer.start_as_current_span("cca.agent") as span:
+                    span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                    span.set_attribute(INPUT_VALUE, user_message[:500])
                     span.set_attribute("cca.session_id", session_id)
                     span.set_attribute("cca.mode", "streaming")
                     span.set_attribute("cca.message", user_message[:200])
@@ -466,6 +471,8 @@ async def chat_completions(
         else:
             # Non-streaming mode: run agent, collect output, return complete response
             with tracer.start_as_current_span("cca.agent") as span:
+                span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                span.set_attribute(INPUT_VALUE, user_message[:500])
                 span.set_attribute("cca.session_id", session_id)
                 span.set_attribute("cca.mode", "non-streaming")
                 span.set_attribute("cca.message", user_message[:200])
@@ -525,6 +532,7 @@ async def chat_completions(
                 span.set_attribute("cca.status", "success")
                 span.set_attribute("cca.execution_time_ms", execution_time)
                 span.set_attribute("cca.response_length", len(response_text))
+                span.set_attribute(OUTPUT_VALUE, response_text[:500])
 
                 response = build_completion_response(
                     content=response_text,

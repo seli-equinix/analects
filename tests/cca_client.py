@@ -74,6 +74,7 @@ class CCAClient:
     def health(self) -> Dict[str, Any]:
         """GET /health — check server status."""
         with self.tracer.start_as_current_span("cca.health") as span:
+            span.set_attribute("openinference.span.kind", "CHAIN")
             try:
                 resp = self._client.get(
                     f"{self.base_url}/health", timeout=TIMEOUT_HEALTH
@@ -101,6 +102,8 @@ class CCAClient:
         session_id = session_id or f"test-{uuid.uuid4().hex[:12]}"
 
         with self.tracer.start_as_current_span("cca.chat") as span:
+            span.set_attribute("openinference.span.kind", "CHAIN")
+            span.set_attribute("input.value", message[:500])
             span.set_attribute("cca.session_id", session_id)
             span.set_attribute("cca.message", message[:200])
             span.set_attribute("cca.timeout", timeout)
@@ -143,6 +146,7 @@ class CCAClient:
                 span.set_attribute("cca.duration_ms", elapsed_ms)
                 span.set_attribute("cca.response_length", len(result.content))
                 span.set_attribute("cca.response_preview", result.content[:500])
+                span.set_attribute("output.value", result.content[:500])
                 span.set_attribute("cca.finish_reason", result.finish_reason)
                 if result.user_identified:
                     span.set_attribute("cca.user_identified", True)

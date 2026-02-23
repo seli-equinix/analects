@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-pytestmark = [pytest.mark.websearch, pytest.mark.timeout(600)]
+pytestmark = [pytest.mark.websearch, pytest.mark.timeout(300)]
 
 
 class TestFetchUrlBasic:
