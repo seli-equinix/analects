@@ -1338,7 +1338,11 @@ class UserSessionManager:
                 embeddings = await self._embedding_func([profile_text])
 
                 if embeddings:
-                    point_id = abs(hash(profile.user_id)) % (2**63)
+                    import hashlib
+                    point_id = int.from_bytes(
+                        hashlib.sha256(profile.user_id.encode()).digest()[:8],
+                        "big",
+                    )
                     self._qdrant.upsert(
                         collection_name=PROFILES_COLLECTION,
                         points=[
@@ -1392,8 +1396,8 @@ class UserSessionManager:
         return self._local_profiles.get(user_id)
 
     async def get_all_users(self) -> List[UserProfile]:
-        """Return all known user profiles."""
-        users: List[UserProfile] = []
+        """Return all known user profiles (deduplicated by user_id)."""
+        seen: Dict[str, UserProfile] = {}
 
         if self._qdrant is not None:
             try:
@@ -1404,17 +1408,17 @@ class UserSessionManager:
                 )
                 if results[0]:
                     for point in results[0]:
-                        users.append(UserProfile.from_dict(point.payload))
+                        profile = UserProfile.from_dict(point.payload)
+                        seen[profile.user_id] = profile
             except Exception as e:
                 logger.warning("Failed to get users from Qdrant: %s", e)
 
         # Include local profiles not already present
-        qdrant_ids = {u.user_id for u in users}
         for profile in self._local_profiles.values():
-            if profile.user_id not in qdrant_ids:
-                users.append(profile)
+            if profile.user_id not in seen:
+                seen[profile.user_id] = profile
 
-        return users
+        return list(seen.values())
 
     # ======================================================================
     # User facts & preferences (session-aware)
