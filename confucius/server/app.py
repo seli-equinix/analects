@@ -288,6 +288,12 @@ async def chat_completions(
             id_result = await user_session_mgr.smart_identify_on_first_message(
                 user_message, session, client_type
             )
+            logger.info(
+                "Smart ID result: identified=%s, action=%s, name=%s",
+                id_result.get("identified"),
+                id_result.get("action"),
+                id_result.get("extracted_name", ""),
+            )
             if id_result.get("identified"):
                 user = id_result.get("user")
             elif id_result.get("action") == "asking_new":
