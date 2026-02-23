@@ -1,10 +1,11 @@
 """Tests for user identification via the CCA agent.
 
-The CCA expert router short-circuits simple greetings as DIRECT answers.
-User creation only happens when the agent loop runs (CODER/INFRA routing).
-Tests pair introductions with a coding task to trigger the agent loop.
+The server auto-creates user profiles when it detects a name in the
+first message (via smart_identify → identify_user). This happens
+BEFORE the expert router, so users are created even for DIRECT answers.
 
-Validates via the /users REST API for ground-truth.
+Tests pair introductions with coding tasks to also exercise the agent
+loop. Validates via the /users REST API for ground-truth.
 """
 
 import uuid

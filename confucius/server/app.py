@@ -64,7 +64,6 @@ from .user.session_manager import UserSessionManager
 from .user.tools_extension import UserToolsExtension
 from .user.user_context import (
     build_anonymous_context,
-    build_pending_new_user_context,
     build_uncertain_context,
     build_user_context,
 )
@@ -291,6 +290,25 @@ async def chat_completions(
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
+            elif id_result.get("action") == "asking_new":
+                # Auto-create user when name is detected — don't wait
+                # for the LLM to call identify_user (unreliable).
+                extracted_name = id_result.get("extracted_name", "")
+                if extracted_name:
+                    create_result = await user_session_mgr.identify_user(
+                        extracted_name, session, client_type
+                    )
+                    if create_result.get("status") in (
+                        "new_user", "welcome_back", "identified",
+                    ):
+                        user = await user_session_mgr.get_user_for_session(
+                            session
+                        )
+                        logger.info(
+                            "Auto-created user '%s' (status=%s)",
+                            extracted_name,
+                            create_result.get("status"),
+                        )
     else:
         user = await user_session_mgr.get_user_for_session(session)
 
@@ -302,10 +320,6 @@ async def chat_completions(
             session_id
         )
         user_context = build_user_context(user, critical_facts_str, id_result or None)
-    elif id_result.get("action") == "asking_new":
-        user_context = build_pending_new_user_context(
-            id_result.get("extracted_name", ""),
-        )
     elif id_result.get("action") == "asking":
         user_context = build_uncertain_context(
             id_result.get("potential_user", ""),

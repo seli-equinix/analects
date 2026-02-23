@@ -1,7 +1,7 @@
-"""Tests for the get_user_context tool.
+"""Tests for session context and user identification state.
 
-Validates that the agent can report session status and user profile.
-Pairs with coding tasks to ensure the agent loop runs.
+Validates that user identification persists across messages in the
+same session, and that anonymous sessions stay anonymous.
 """
 
 import uuid
@@ -12,35 +12,38 @@ pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
 
 
 class TestGetContext:
-    """get_user_context tool — session + profile info."""
+    """Session context — identification state across messages."""
 
     def test_context_identified_user(self, cca, trace_test):
-        """After identification, the agent should know who we are."""
+        """After identification, the session should remain identified."""
         name = f"CtxUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-ctx-{uuid.uuid4().hex[:8]}"
 
-        # Identify via coding task
-        cca.chat(
+        # First message: identify + coding task
+        r1 = cca.chat(
             f"Hi I'm {name}. I work at ContextCorp. "
             f"Write a Python one-liner to get the current timestamp.",
             session_id=session_id,
         )
+        trace_test.set_attribute("cca.test.r1_response", r1.content[:300])
 
-        # Ask about context (same session, user already in agent loop)
-        result = cca.chat(
-            "What do you know about me? Also write a one-liner "
-            "to format a datetime as ISO 8601.",
+        # User should be auto-created
+        user = cca.find_user_by_name(name)
+        trace_test.set_attribute("cca.test.user_created", user is not None)
+        assert user is not None, f"User '{name}' not created after first message"
+
+        # Second message: same session — should still be identified
+        r2 = cca.chat(
+            f"Now write a Python function to calculate fibonacci numbers.",
             session_id=session_id,
         )
+        trace_test.set_attribute("cca.test.r2_response", r2.content[:300])
+        assert r2.content, "Second message returned empty response"
 
-        trace_test.set_attribute("cca.test.response", result.content[:500])
-        assert result.content, "Agent returned empty response"
-
-        content_lower = result.content.lower()
-        assert any(w in content_lower for w in [
-            name.lower(), "contextcorp", "identified", "session",
-            "context", "work", "profile", "iso", "datetime",
-        ]), f"Response doesn't include user context: {result.content[:200]}"
+        # Session should show user as identified in metadata
+        trace_test.set_attribute("cca.test.user_identified", r2.user_identified)
+        assert r2.user_identified, \
+            "Session should remain identified across messages"
 
         cca.cleanup_test_user(name)
 

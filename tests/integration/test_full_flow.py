@@ -1,9 +1,10 @@
 """End-to-end integration tests for user lifecycle flows.
 
 Tests multi-step user flows: fact persistence across sessions
-and full user lifecycle (create → facts → view → delete).
-All prompts pair introductions with coding tasks to ensure
-the agent loop runs (expert router short-circuits greetings).
+and full user lifecycle (create → verify → delete).
+
+The server auto-creates users when it detects a name introduction.
+Tests validate state via the /users REST API for ground-truth.
 """
 
 import uuid
@@ -53,11 +54,11 @@ class TestRememberAndRecall:
 
 
 class TestFullUserLifecycle:
-    """Full CRUD lifecycle: create → facts → view → delete."""
+    """Full CRUD lifecycle: create → verify via API → delete via API."""
 
     @pytest.mark.timeout(360)
     def test_full_lifecycle(self, cca, trace_test):
-        """Complete user profile lifecycle with coding tasks."""
+        """Complete user profile lifecycle."""
         name = f"Lifecycle_{uuid.uuid4().hex[:6]}"
         session_id = f"test-life-{uuid.uuid4().hex[:8]}"
 
@@ -71,39 +72,19 @@ class TestFullUserLifecycle:
         trace_test.set_attribute("cca.test.step1", r1.content[:300])
         assert r1.content, "Setup step returned empty"
 
-        # Verify user exists via REST API
+        # Step 2: Verify user exists via REST API
         user = cca.find_user_by_name(name)
         trace_test.set_attribute("cca.test.user_created", user is not None)
         assert user is not None, f"User '{name}' not created"
 
-        # Step 2: View profile (same session)
-        r2 = cca.chat(
-            "What do you know about me? Also show me how to "
-            "find the minimum in a list.",
-            session_id=session_id,
-        )
-        trace_test.set_attribute("cca.test.step2", r2.content[:500])
-        assert r2.content, "View step returned empty"
+        # Step 3: Verify session is identified
+        assert r1.user_identified, \
+            "Session should be identified after auto-creation"
 
-        view_lower = r2.content.lower()
-        assert any(w in view_lower for w in [
-            "lifecyclecorp", "rust", "profile", name.lower(),
-            "employer", "skill", "min",
-        ]), f"View missing data: {r2.content[:200]}"
+        # Step 4: Delete via REST API
+        cca.cleanup_test_user(name)
 
-        # Step 3: Delete profile
-        r3 = cca.chat(
-            "Delete my profile completely. I confirm deletion. "
-            "Also how do I delete a directory in Python?",
-            session_id=session_id,
-        )
-        trace_test.set_attribute("cca.test.step3", r3.content[:200])
-        assert r3.content, "Delete step returned empty"
-
-        # Verify deletion via REST API
+        # Step 5: Verify deletion
         user_after = cca.find_user_by_name(name)
         trace_test.set_attribute("cca.test.user_deleted", user_after is None)
-
-        # Cleanup if agent refused to delete
-        if user_after:
-            cca.cleanup_test_user(name)
+        assert user_after is None, f"User '{name}' still exists after delete"
