@@ -283,8 +283,8 @@ async def chat_completions(
     # 4. Smart auto-identification on first message of new sessions
     user = None
     id_result: Dict[str, Any] = {}
+    user_message = extract_last_user_message(request.messages)
     if not session.identified:
-        user_message = extract_last_user_message(request.messages)
         if user_message:
             id_result = await user_session_mgr.smart_identify_on_first_message(
                 user_message, session, client_type
