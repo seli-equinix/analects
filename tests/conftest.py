@@ -138,6 +138,44 @@ def pytest_runtest_makereport(item, call):
     setattr(item, f"rep_{rep.when}", rep)
 
 
+# ==================== LLM Judge (direct vLLM, NOT CCA) ====================
+
+
+VLLM_BASE_URL = "http://192.168.4.208:8000/v1"
+VLLM_MODEL = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+
+
+@pytest.fixture(scope="session")
+def judge_model():
+    """Direct vLLM connection for LLM-as-judge evaluators.
+
+    Talks directly to vLLM on Spark2:8000/v1 (raw OpenAI-compatible API).
+    Does NOT go through CCA. CCA is the system under test; this is the
+    independent judge.
+    """
+    try:
+        from phoenix.evals import OpenAIModel
+    except ImportError:
+        return None
+
+    try:
+        import httpx
+
+        resp = httpx.get(f"{VLLM_BASE_URL[:-3]}/health", timeout=5)
+        if resp.status_code != 200:
+            return None
+    except Exception:
+        return None
+
+    return OpenAIModel(
+        model=VLLM_MODEL,
+        base_url=VLLM_BASE_URL,
+        api_key="not-needed",
+        temperature=0.0,
+        max_tokens=256,
+    )
+
+
 # ==================== CCA Client ====================
 
 

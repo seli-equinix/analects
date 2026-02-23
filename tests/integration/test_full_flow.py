@@ -11,13 +11,15 @@ import uuid
 
 import pytest
 
+from tests.evaluators import evaluate_response
+
 pytestmark = [pytest.mark.integration, pytest.mark.user, pytest.mark.timeout(300)]
 
 
 class TestRememberAndRecall:
     """Store facts in session 1, recall them in session 2."""
 
-    def test_facts_persist_across_sessions(self, cca, trace_test):
+    def test_facts_persist_across_sessions(self, cca, trace_test, judge_model):
         """Facts stored in one session should be recalled in another."""
         name = f"Recall_{uuid.uuid4().hex[:6]}"
         company = f"RecallCorp_{uuid.uuid4().hex[:4]}"
@@ -32,11 +34,13 @@ class TestRememberAndRecall:
         )
 
         # Session 2: New session, ask to recall
-        result = cca.chat(
+        message = (
             f"Hi, I'm {name}. Where do I work? "
-            f"Also write a one-liner to check if a string is empty.",
-            session_id=sid2,
+            f"Also write a one-liner to check if a string is empty."
         )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "integration")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Session 2 returned empty"
@@ -57,18 +61,20 @@ class TestFullUserLifecycle:
     """Full CRUD lifecycle: create → verify via API → delete via API."""
 
     @pytest.mark.timeout(360)
-    def test_full_lifecycle(self, cca, trace_test):
+    def test_full_lifecycle(self, cca, trace_test, judge_model):
         """Complete user profile lifecycle."""
         name = f"Lifecycle_{uuid.uuid4().hex[:6]}"
         session_id = f"test-life-{uuid.uuid4().hex[:8]}"
+        message = (
+            f"Hi I'm {name}. I work at LifecycleCorp and know Rust. "
+            f"Write a Python function to find the maximum in a list."
+        )
 
         # Step 1: Create user with facts via coding task
-        r1 = cca.chat(
-            f"Hi I'm {name}. I work at LifecycleCorp and know Rust. "
-            f"Write a Python function to find the maximum in a list.",
-            session_id=session_id,
-            timeout=240,
-        )
+        r1 = cca.chat(message, session_id=session_id, timeout=240)
+
+        evaluate_response(r1, message, trace_test, judge_model, "integration")
+
         trace_test.set_attribute("cca.test.step1", r1.content[:300])
         assert r1.content, "Setup step returned empty"
 

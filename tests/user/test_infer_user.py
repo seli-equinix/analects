@@ -8,13 +8,15 @@ import uuid
 
 import pytest
 
+from tests.evaluators import evaluate_response
+
 pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
 
 
 class TestInferUser:
     """infer_user tool — semantic matching via embeddings."""
 
-    def test_infer_known_user(self, cca, trace_test):
+    def test_infer_known_user(self, cca, trace_test, judge_model):
         """Agent should recognize a known user from a returning intro."""
         name = f"InferKnown_{uuid.uuid4().hex[:6]}"
         sid1 = f"test-inf1-{uuid.uuid4().hex[:8]}"
@@ -28,11 +30,13 @@ class TestInferUser:
         )
 
         # Session 2: return with name + task
-        result = cca.chat(
+        message = (
             f"Hey it's {name} again, the vLLM person. "
-            f"Help me write a function to parse YAML.",
-            session_id=sid2,
+            f"Help me write a function to parse YAML."
         )
+        result = cca.chat(message, session_id=sid2)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
@@ -44,14 +48,14 @@ class TestInferUser:
 
         cca.cleanup_test_user(name)
 
-    def test_infer_no_match(self, cca, trace_test):
+    def test_infer_no_match(self, cca, trace_test, judge_model):
         """Generic message with no user clues should not auto-identify."""
         session_id = f"test-noinf-{uuid.uuid4().hex[:8]}"
+        message = "What is the capital of France?"
 
-        result = cca.chat(
-            "What is the capital of France?",
-            session_id=session_id,
-        )
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"

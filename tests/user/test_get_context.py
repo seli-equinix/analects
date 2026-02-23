@@ -8,23 +8,27 @@ import uuid
 
 import pytest
 
+from tests.evaluators import evaluate_response
+
 pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
 
 
 class TestGetContext:
     """Session context — identification state across messages."""
 
-    def test_context_identified_user(self, cca, trace_test):
+    def test_context_identified_user(self, cca, trace_test, judge_model):
         """After identification, the session should remain identified."""
         name = f"CtxUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-ctx-{uuid.uuid4().hex[:8]}"
-
-        # First message: identify + coding task
-        r1 = cca.chat(
+        message = (
             f"Hi I'm {name}. I work at ContextCorp. "
-            f"Write a Python one-liner to get the current timestamp.",
-            session_id=session_id,
+            f"Write a Python one-liner to get the current timestamp."
         )
+
+        r1 = cca.chat(message, session_id=session_id)
+
+        evaluate_response(r1, message, trace_test, judge_model, "user")
+
         trace_test.set_attribute("cca.test.r1_response", r1.content[:300])
 
         # User should be auto-created
@@ -33,10 +37,11 @@ class TestGetContext:
         assert user is not None, f"User '{name}' not created after first message"
 
         # Second message: same session — should still be identified
-        r2 = cca.chat(
-            f"Now write a Python function to calculate fibonacci numbers.",
-            session_id=session_id,
-        )
+        msg2 = "Now write a Python function to calculate fibonacci numbers."
+        r2 = cca.chat(msg2, session_id=session_id)
+
+        evaluate_response(r2, msg2, trace_test, judge_model, "user")
+
         trace_test.set_attribute("cca.test.r2_response", r2.content[:300])
         assert r2.content, "Second message returned empty response"
 
@@ -47,14 +52,14 @@ class TestGetContext:
 
         cca.cleanup_test_user(name)
 
-    def test_context_anonymous(self, cca, trace_test):
+    def test_context_anonymous(self, cca, trace_test, judge_model):
         """Anonymous session should not show identification."""
         session_id = f"test-anon-{uuid.uuid4().hex[:8]}"
+        message = "What is the capital of France?"
 
-        result = cca.chat(
-            "What is the capital of France?",
-            session_id=session_id,
-        )
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"

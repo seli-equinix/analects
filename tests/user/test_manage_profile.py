@@ -8,13 +8,15 @@ import uuid
 
 import pytest
 
+from tests.evaluators import evaluate_response
+
 pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
 
 
 class TestManageProfileView:
     """manage_user_profile action=view — full profile display."""
 
-    def test_view_profile(self, cca, trace_test):
+    def test_view_profile(self, cca, trace_test, judge_model):
         """Agent should show profile data when asked."""
         name = f"ViewUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-view-{uuid.uuid4().hex[:8]}"
@@ -27,11 +29,13 @@ class TestManageProfileView:
         )
 
         # Ask for profile view (same session, user already identified)
-        result = cca.chat(
+        message = (
             "What do you know about me? Show my profile. "
-            "Also, how do I generate a random string in Python?",
-            session_id=session_id,
+            "Also, how do I generate a random string in Python?"
         )
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
@@ -47,21 +51,22 @@ class TestManageProfileView:
 class TestManageProfileSkills:
     """manage_user_profile action=add_skill."""
 
-    def test_add_skill(self, cca, trace_test):
+    def test_add_skill(self, cca, trace_test, judge_model):
         """Agent should add a skill to the user's profile."""
         name = f"SkillUser_{uuid.uuid4().hex[:6]}"
         session_id = f"test-skill-{uuid.uuid4().hex[:8]}"
-
-        result = cca.chat(
+        message = (
             f"Hi I'm {name}. I know Python and Docker. "
-            f"Write a Dockerfile for a simple Python Flask app.",
-            session_id=session_id,
+            f"Write a Dockerfile for a simple Python Flask app."
         )
+
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
 
-        # User should exist
         user = cca.find_user_by_name(name)
         assert user is not None, f"User '{name}' not found via /users API"
 
@@ -71,17 +76,19 @@ class TestManageProfileSkills:
 class TestManageProfileAlias:
     """manage_user_profile action=add_alias."""
 
-    def test_add_alias(self, cca, trace_test):
+    def test_add_alias(self, cca, trace_test, judge_model):
         """Agent should handle alias introduction alongside a task."""
         name = f"AliasUser_{uuid.uuid4().hex[:6]}"
         alias = f"al_{uuid.uuid4().hex[:4]}"
         session_id = f"test-alias-{uuid.uuid4().hex[:8]}"
-
-        result = cca.chat(
+        message = (
             f"Hi I'm {name}, also known as {alias}. "
-            f"Write a Python function to merge two dictionaries.",
-            session_id=session_id,
+            f"Write a Python function to merge two dictionaries."
         )
+
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
@@ -102,7 +109,7 @@ class TestManageProfileListAll:
 class TestManageProfileDelete:
     """manage_user_profile action=delete_profile."""
 
-    def test_delete_profile(self, cca, trace_test):
+    def test_delete_profile(self, cca, trace_test, judge_model):
         """Agent should delete a user profile when confirmed."""
         name = f"DelUser_{uuid.uuid4().hex[:6]}"
         sid_create = f"test-delc-{uuid.uuid4().hex[:8]}"
@@ -114,17 +121,18 @@ class TestManageProfileDelete:
             session_id=sid_create,
         )
 
-        # Verify user exists
         user = cca.find_user_by_name(name)
         assert user is not None, f"User '{name}' not created"
 
-        # Request deletion in a new session (agent needs to enter loop)
-        result = cca.chat(
+        # Request deletion in a new session
+        message = (
             f"Hi I'm {name}. Please delete my profile completely. "
             f"I confirm permanent deletion. Also show me how to "
-            f"delete a file in Python.",
-            session_id=sid_delete,
+            f"delete a file in Python."
         )
+        result = cca.chat(message, session_id=sid_delete)
+
+        evaluate_response(result, message, trace_test, judge_model, "user")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
         assert result.content, "Agent returned empty response"
@@ -135,7 +143,6 @@ class TestManageProfileDelete:
             "python", "file", "os.",
         ]), f"Response doesn't address deletion or coding: {result.content[:200]}"
 
-        # Check if actually deleted
         user_after = cca.find_user_by_name(name)
         trace_test.set_attribute("cca.test.user_deleted", user_after is None)
 

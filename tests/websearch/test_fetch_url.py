@@ -8,27 +8,30 @@ import uuid
 
 import pytest
 
+from tests.evaluators import evaluate_response
+
 pytestmark = [pytest.mark.websearch, pytest.mark.timeout(300)]
 
 
 class TestFetchUrlBasic:
     """fetch_url_content tool — basic URL fetching."""
 
-    def test_fetch_public_url(self, cca, trace_test):
+    def test_fetch_public_url(self, cca, trace_test, judge_model):
         """Agent should fetch a public URL and extract text content."""
         session_id = f"test-fetch-{uuid.uuid4().hex[:8]}"
-
-        result = cca.chat(
+        message = (
             "Fetch the page at https://httpbin.org/html using "
-            "fetch_url_content and tell me what text it contains.",
-            session_id=session_id,
+            "fetch_url_content and tell me what text it contains."
         )
+
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "websearch")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
 
         assert result.content, "Agent returned empty response"
         content_lower = result.content.lower()
-        # httpbin.org/html contains "Herman Melville" text
         has_content = (
             "herman" in content_lower or
             "melville" in content_lower or
@@ -45,21 +48,22 @@ class TestFetchUrlBasic:
 class TestFetchUrlSecurity:
     """fetch_url_content tool — SSRF protection and validation."""
 
-    def test_ssrf_blocks_private_ip(self, cca, trace_test):
+    def test_ssrf_blocks_private_ip(self, cca, trace_test, judge_model):
         """Agent should refuse to fetch private/internal IP addresses."""
         session_id = f"test-ssrf-{uuid.uuid4().hex[:8]}"
-
-        result = cca.chat(
+        message = (
             "Fetch http://192.168.1.1/ using fetch_url_content. "
-            "Tell me exactly what happens.",
-            session_id=session_id,
+            "Tell me exactly what happens."
         )
+
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "websearch")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
 
         assert result.content, "Agent returned empty response"
         content_lower = result.content.lower()
-        # Should mention the request was blocked
         blocked = (
             "blocked" in content_lower or
             "private" in content_lower or
@@ -74,14 +78,14 @@ class TestFetchUrlSecurity:
         assert blocked, \
             "Response doesn't indicate the private IP was blocked"
 
-    def test_invalid_scheme_rejected(self, cca, trace_test):
+    def test_invalid_scheme_rejected(self, cca, trace_test, judge_model):
         """Agent should reject non-http/https schemes."""
         session_id = f"test-scheme-{uuid.uuid4().hex[:8]}"
+        message = "Fetch ftp://example.com/file.txt using fetch_url_content."
 
-        result = cca.chat(
-            "Fetch ftp://example.com/file.txt using fetch_url_content.",
-            session_id=session_id,
-        )
+        result = cca.chat(message, session_id=session_id)
+
+        evaluate_response(result, message, trace_test, judge_model, "websearch")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
 
@@ -103,21 +107,21 @@ class TestFetchUrlChained:
 
     @pytest.mark.slow
     @pytest.mark.timeout(360)
-    def test_search_then_fetch(self, cca, trace_test):
+    def test_search_then_fetch(self, cca, trace_test, judge_model):
         """Agent should search then fetch the best result."""
         session_id = f"test-chain-{uuid.uuid4().hex[:8]}"
-
-        result = cca.chat(
+        message = (
             "Search for 'httpbin.org' using web_search, then use "
             "fetch_url_content to fetch the top result URL and tell "
-            "me what the page says.",
-            session_id=session_id,
-            timeout=360,
+            "me what the page says."
         )
+
+        result = cca.chat(message, session_id=session_id, timeout=360)
+
+        evaluate_response(result, message, trace_test, judge_model, "websearch")
 
         trace_test.set_attribute("cca.test.response", result.content[:500])
 
         assert result.content, "Agent returned empty response"
-        # Should have actually fetched and described page content
         assert len(result.content) > 50, \
             "Response too short for a search + fetch chain"
