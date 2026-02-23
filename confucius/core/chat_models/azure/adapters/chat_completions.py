@@ -8,6 +8,8 @@ It handles basic text, image, and tool call functionality.
 """
 
 import json
+import re
+import uuid
 from typing import Any, List, Optional, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -333,6 +335,41 @@ def _extract_tool_calls(
     return tool_uses
 
 
+_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL
+)
+
+
+def _extract_inline_tool_calls(text: str) -> tuple[
+    List[ant.MessageContentToolUse], str
+]:
+    """Parse <tool_call>JSON</tool_call> blocks from vLLM text output.
+
+    vLLM with Qwen3 may emit tool calls as inline XML when the
+    tool-call-parser doesn't intercept them.  This converts them to
+    proper MessageContentToolUse objects so the orchestrator can
+    execute them.
+
+    Returns (tool_uses, remaining_text) where remaining_text has the
+    <tool_call> blocks stripped out.
+    """
+    tool_uses: List[ant.MessageContentToolUse] = []
+    for match in _TOOL_CALL_RE.finditer(text):
+        try:
+            data = json.loads(match.group(1))
+            tool_uses.append(
+                ant.MessageContentToolUse(
+                    id=f"tc_{uuid.uuid4().hex[:12]}",
+                    name=data["name"],
+                    input=data.get("arguments", data.get("input", {})),
+                )
+            )
+        except (json.JSONDecodeError, KeyError):
+            continue
+    remaining = _TOOL_CALL_RE.sub("", text).strip()
+    return tool_uses, remaining
+
+
 def _extract_text_content(
     message: ChatCompletionMessage,
 ) -> List[ant.MessageContentText]:
@@ -380,13 +417,28 @@ def openai_response_to_ant_response(
     message = choice.message
     content: List[ant.ResponseContent] = []
 
-    # Extract tool calls if present
+    # Extract structured tool calls if present (native OpenAI format)
     tool_uses = _extract_tool_calls(message)
     if tool_uses:
         content.extend(tool_uses)
 
     # Extract text content
     text_contents = _extract_text_content(message)
+
+    # Fallback: parse <tool_call> XML from text when vLLM doesn't
+    # return structured tool_calls (common with Qwen3 models).
+    if not tool_uses and text_contents:
+        raw_text = " ".join(tc.text for tc in text_contents)
+        inline_tools, remaining_text = _extract_inline_tool_calls(raw_text)
+        if inline_tools:
+            content.extend(inline_tools)
+            # Replace text content with the cleaned remainder
+            text_contents = (
+                [ant.MessageContentText(text=remaining_text)]
+                if remaining_text
+                else []
+            )
+
     if text_contents:
         content.extend(text_contents)
 
@@ -399,8 +451,15 @@ def openai_response_to_ant_response(
     input_tokens = usage.prompt_tokens if usage is not None else 0
     output_tokens = usage.completion_tokens if usage is not None else 0
 
-    # Map finish reason to stop reason
-    stop_reason = _map_finish_reason_to_stop_reason(choice.finish_reason)
+    # Map finish reason to stop reason — if we extracted inline tools,
+    # treat it as a tool-use stop even though vLLM said "stop".
+    has_tool_use = any(
+        isinstance(c, ant.MessageContentToolUse) for c in content
+    )
+    if has_tool_use:
+        stop_reason = ant.StopReason.TOOL_USE
+    else:
+        stop_reason = _map_finish_reason_to_stop_reason(choice.finish_reason)
 
     return ant.Response(
         content=content,
