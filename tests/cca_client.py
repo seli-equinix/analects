@@ -15,8 +15,8 @@ from opentelemetry import trace
 
 # Timeout defaults (seconds)
 TIMEOUT_HEALTH = 10
-TIMEOUT_CHAT = 180
-TIMEOUT_CHAT_SLOW = 360
+TIMEOUT_CHAT = 240
+TIMEOUT_CHAT_SLOW = 480
 TIMEOUT_DIAGNOSTIC = 15
 
 

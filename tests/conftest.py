@@ -194,6 +194,8 @@ def judge_model():
         api_key="not-needed",
         temperature=0.0,
         max_tokens=1024,  # Qwen3 thinking model needs room for <think> + label
+        request_timeout=120,  # Qwen3 thinking + CCA contention needs more than 30s
+        timeout=300,  # Overall timeout for retries
     )
 
 

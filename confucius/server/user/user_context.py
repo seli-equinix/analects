@@ -79,10 +79,11 @@ IMPORTANT - NATURAL CONVERSATION STYLE:
 - Reference their past work/projects naturally as if you genuinely remember them
 - If you remember facts about them, weave them in conversationally
 
-Use **identify_user** if their identity changes.
-Use **remember_user_fact** to save important new information they share.
-Use **update_user_preference** if they express preferences about responses.
-Use **manage_user_profile** to view, update, or delete user data when asked.
+TOOL USAGE — Call these tools when appropriate:
+- **remember_user_fact**: When user shares important info (employer, project, tech stack, role, etc.). Call IMMEDIATELY — don't wait to be asked. If they say "I switched jobs to X" or "I now work at X", update the employer fact.
+- **update_user_preference**: When user says they prefer certain response styles.
+- **manage_user_profile**: When user asks to view/update/delete their profile, add/remove skills or aliases. For deletion, ALWAYS pass confirm_delete=true when the user explicitly confirms.
+- **identify_user**: When user says a different name or identity changes.
 """
     sections.append(personalization)
 
@@ -124,9 +125,10 @@ The user introduced themselves as **{extracted_name}**. This is a NEW user
 **You MUST call `identify_user` with name="{extracted_name}" BEFORE doing
 anything else.** This creates their profile so you can remember them.
 
-After identification, also use:
-- **remember_user_fact** to save any facts they shared (employer, skills, etc.)
-- **manage_user_profile** to add skills or aliases mentioned
+After identification, IMMEDIATELY use these tools:
+- **remember_user_fact** to save any facts they shared (employer, role, skills, tech stack, etc.)
+- **manage_user_profile** with action="add_skill" for any technical skills mentioned
+- **manage_user_profile** with action="add_alias" for any nicknames or alternate names mentioned
 
 Then proceed to answer their question naturally.
 """
