@@ -113,7 +113,8 @@ class NoteObserver:
         # Backends (set during initialize())
         self._redis: Any = redis_client  # redis.asyncio.Redis (may be pre-injected)
         self._qdrant: Any = None  # qdrant_client.QdrantClient
-        self._http_client: Any = None  # httpx.AsyncClient
+        self._http_client: Any = None  # httpx.AsyncClient (for embeddings/non-LLM)
+        self._openai_client: Any = None  # openai.AsyncOpenAI (for LLM — auto-traced)
         self._embedding_model: Optional[str] = None
 
         self._initialized: bool = False
@@ -128,8 +129,16 @@ class NoteObserver:
             return
 
         import httpx
+        from openai import AsyncOpenAI
 
         self._http_client = httpx.AsyncClient(timeout=60.0)
+
+        # AsyncOpenAI client for LLM calls — auto-traced by OpenAIInstrumentor
+        self._openai_client = AsyncOpenAI(
+            base_url=self._llm_url,
+            api_key="not-needed",  # local vLLM, no auth
+            timeout=60.0,
+        )
 
         # ---- Redis (reuse if injected, else connect) --------------------
         if self._redis is None:
@@ -176,6 +185,9 @@ class NoteObserver:
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
+        if self._openai_client is not None:
+            await self._openai_client.close()
+            self._openai_client = None
         self._qdrant = None
 
     async def _ensure_collection(self) -> None:
@@ -320,8 +332,12 @@ class NoteObserver:
     # ------------------------------------------------------------------
 
     async def _extract_notes(self, messages: List[Any]) -> List[Dict[str, Any]]:
-        """Call Spark1 Qwen3-8B to extract structured notes from the trajectory."""
-        if self._http_client is None:
+        """Call Spark1 Qwen3-8B to extract structured notes from the trajectory.
+
+        Uses AsyncOpenAI client so the call is auto-traced by OpenAIInstrumentor
+        (shows up in Phoenix as a ChatCompletion span with model, tokens, etc.).
+        """
+        if self._openai_client is None:
             return []
 
         # Build a condensed view of the conversation
@@ -330,26 +346,21 @@ class NoteObserver:
             return []
 
         try:
-            response = await self._http_client.post(
-                f"{self._llm_url}/chat/completions",
-                json={
-                    "model": self._llm_model,
-                    "messages": [
-                        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"Analyze this conversation and extract insights:\n\n{trajectory_text}",
-                        },
-                    ],
-                    "temperature": self._temperature,
-                    "max_tokens": 1024,
-                },
+            response = await self._openai_client.chat.completions.create(
+                model=self._llm_model,
+                messages=[
+                    {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"Analyze this conversation and extract insights:\n\n{trajectory_text}",
+                    },
+                ],
+                temperature=self._temperature,
+                max_tokens=1024,
             )
-            response.raise_for_status()
-            data = response.json()
 
             # Extract the LLM's response text
-            content = data["choices"][0]["message"]["content"]
+            content = response.choices[0].message.content or ""
 
             # Strip thinking tags if present (Qwen3 may include them)
             content = self._strip_thinking(content)
