@@ -175,7 +175,7 @@ class UserToolsExtension(ToolUseExtension):
                     "- remove_skill: Remove a skill (pass value=\"Python\")\n"
                     "- add_alias: Add an alias name (pass value=\"seli\")\n"
                     "- remove_alias: Remove an alias (pass value=\"old_name\")\n"
-                    "- delete_profile: Permanently delete a user profile (requires confirm_delete=true)\n"
+                    "- delete_profile: Permanently delete a user profile. ALWAYS set confirm_delete=true when the user says they want to delete or confirms deletion.\n"
                     "- list_all: List all known user profiles (summary view)"
                 ),
                 input_schema={
@@ -210,7 +210,7 @@ class UserToolsExtension(ToolUseExtension):
                         },
                         "confirm_delete": {
                             "type": "boolean",
-                            "description": "Must be true to actually delete a profile",
+                            "description": "Set to true when user confirms they want deletion. Required for delete_profile action.",
                         },
                     },
                     "required": ["action"],
