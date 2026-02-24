@@ -13,10 +13,9 @@ Both CLI and HTTP mode use the same agent path:
       -> impl() -> build extensions -> AnthropicLLMOrchestrator -> full agent loop
 
 The only differences in HTTP mode:
-1. HttpCodeAssistEntry injects user context into the task definition
-   and adds UserToolsExtension to the extensions list
+1. HttpRoutedEntry dynamically builds extensions per route via tool_groups.py
 2. HttpIOInterface captures output instead of printing to terminal
-3. User identification happens before invocation via UserSessionManager
+3. User identification happens server-side (router extraction + regex fallback)
 """
 
 from __future__ import annotations
@@ -46,9 +45,8 @@ from .expert_router import (
     classify_request,
     close_client as close_router_client,
 )
-from .http_entry import HttpCodeAssistEntry
-from .http_infra_entry import HttpInfraEntry
 from .http_routed_entry import HttpRoutedEntry
+from .tool_groups import get_max_iterations
 from .io_adapter import HttpIOInterface
 from .models import (
     ChatCompletionRequest,
@@ -349,6 +347,9 @@ async def _handle_chat_completions(
             )
             request_span.set_attribute("cca.route", route.expert.value)
             request_span.set_attribute("cca.route_summary", route.task_summary[:100])
+            request_span.set_attribute("cca.estimated_steps", route.estimated_steps)
+            request_span.set_attribute("cca.max_iterations", get_max_iterations(route))
+            request_span.set_attribute("cca.experts_enabled", route.is_complex)
 
         except Exception as e:
             logger.warning(f"Router classification failed, falling back to coder: {e}")
@@ -784,6 +785,10 @@ async def route_test(request: Request) -> Dict[str, Any]:
             "clarification_question": route.clarification_question or None,
             "classification_time_ms": round(route.classification_time_ms, 1),
             "context_header": route.to_context_header(),
+            # Complexity-aware dynamic scaling
+            "estimated_steps": route.estimated_steps,
+            "computed_max_iterations": get_max_iterations(route),
+            "experts_enabled": route.is_complex,
         }
     except Exception as e:
         return {"error": str(e)}

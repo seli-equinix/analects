@@ -3,8 +3,7 @@
 
 """Dynamic route-based entry for the CCA server.
 
-Replaces per-route entry classes (HttpCodeAssistEntry, HttpInfraEntry) with
-a single entry that builds its extension list dynamically from the route
+Unified entry that builds its extension list dynamically from the route
 classification.  The Functionary router classifies each request, and this
 entry uses tool_groups.py to select exactly the right tools.
 
@@ -39,12 +38,40 @@ from ..analects.code.tasks import get_task_definition
 from ..analects.infrastructure.tasks import get_infra_task_definition
 from .expert_router import ExpertType, RouteDecision
 from .tool_groups import (
-    ROUTE_MAX_ITERATIONS,
     build_extensions_for_route,
+    get_max_iterations,
 )
 from .user.user_context import get_user_task_definition
 
 logger = logging.getLogger(__name__)
+
+
+def _get_complexity_guidance(expert: ExpertType) -> str:
+    """Build complexity guidance for complex tasks (estimated_steps >= 8)."""
+    guidance = (
+        "## Complex Task — Follow These Guidelines\n"
+        "1. **Plan first**: Use `write_memory` to create a step-by-step plan "
+        "before editing any files. Track progress as you work.\n"
+        "2. **Explore thoroughly**: Read ALL relevant files before editing. "
+        "Trace call chains, imports, and dependencies.\n"
+        "3. **Change incrementally**: One logical change at a time. Verify each step.\n"
+        "4. **Track progress**: Update your plan in memory as you complete steps.\n"
+        "5. **Review your work**: Re-read all modified files before finishing.\n"
+    )
+    if expert == ExpertType.CODER:
+        guidance += (
+            "6. A **code reviewer** will check your work after file edits — "
+            "address any issues it raises.\n"
+            "7. **Test suggestions** may appear after creating new files — "
+            "consider implementing them.\n"
+        )
+    elif expert == ExpertType.INFRASTRUCTURE:
+        guidance += (
+            "6. A **code reviewer** will check your changes — "
+            "address any issues it raises.\n"
+            "7. **Verify on all affected nodes** — don't assume one node means all are correct.\n"
+        )
+    return guidance
 
 
 # Route → task definition builder
@@ -66,7 +93,7 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
     2. Build the extension list from the route's tool groups
     3. Set route-appropriate max_iterations
 
-    Replaces HttpCodeAssistEntry and HttpInfraEntry.
+    Unified entry for all routed requests.
     """
 
     def __init__(
@@ -109,17 +136,22 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         if route_header:
             task_def = task_def + "\n\n" + route_header
 
+        # 3b. Inject complexity guidance for complex tasks
+        if self._route.is_complex:
+            task_def += "\n\n" + _get_complexity_guidance(expert)
+
         # 4. Build extensions from route's tool groups
         extensions = build_extensions_for_route(
-            expert=expert,
+            route=self._route,
             user_extension=self._user_extension,
         )
 
-        # 5. Get route-specific iteration limit
-        max_iterations = ROUTE_MAX_ITERATIONS.get(expert, 20)
+        # 5. Compute dynamic iteration limit from estimated steps
+        max_iterations = get_max_iterations(self._route)
 
         logger.info(
             f"HttpRoutedEntry: route={expert.value}, "
+            f"estimated_steps={self._route.estimated_steps}, "
             f"extensions={len(extensions)}, "
             f"max_iter={max_iterations}, "
             f"summary={self._route.task_summary[:60]}"

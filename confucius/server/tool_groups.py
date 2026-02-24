@@ -27,7 +27,9 @@ from ..orchestrator.extensions.plan.llm import LLMCodingArchitectExtension
 
 from ..analects.code.commands import get_allowed_commands
 from ..analects.infrastructure.commands import get_infra_commands
-from .expert_router import ExpertType
+from .expert_router import ExpertType, RouteDecision
+from ..orchestrator.extensions.expert.reviewer import CodeReviewerExtension
+from ..orchestrator.extensions.expert.test_gen import TestGeneratorExtension
 from .user.memory_extension import UserMemoryExtension
 from .utility_tools import UtilityToolsExtension
 
@@ -96,13 +98,24 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
 # ========================= Route Settings =========================
 
 
-ROUTE_MAX_ITERATIONS: Dict[ExpertType, int] = {
+_BASE_MAX_ITERATIONS: Dict[ExpertType, int] = {
     ExpertType.USER: 10,
     ExpertType.CODER: 20,
     ExpertType.INFRASTRUCTURE: 30,
     ExpertType.SEARCH: 15,
     ExpertType.PLANNER: 10,
 }
+
+
+def get_max_iterations(route: RouteDecision) -> int:
+    """Compute max iterations from route's estimated steps.
+
+    Formula: max(base, min(estimated_steps * 2, 200)).
+    The base per-route value acts as a floor for that route type.
+    """
+    base = _BASE_MAX_ITERATIONS.get(route.expert, 20)
+    from_steps = route.estimated_steps * 2
+    return max(base, min(from_steps, 200))
 
 
 # Command allowlists per route.  None = no shell access.
@@ -133,22 +146,24 @@ def _get_functions() -> list[Callable[..., Any]]:
 
 
 def build_extensions_for_route(
-    expert: ExpertType,
+    route: RouteDecision,
     user_extension: Optional[Extension] = None,
 ) -> List[Extension]:
     """Build the extension list for a given route.
 
     Only includes extensions whose tool group is in the route's
-    ROUTE_TOOL_GROUPS mapping.  Always appends PlainTextExtension
-    and AnthropicPromptCaching at the end.
+    ROUTE_TOOL_GROUPS mapping.  For complex tasks (estimated_steps >= 8),
+    conditionally adds CodeReviewerExtension and TestGeneratorExtension.
+    Always appends PlainTextExtension and AnthropicPromptCaching at the end.
 
     Args:
-        expert: The classified ExpertType from the Functionary router.
+        route: The RouteDecision from the Functionary router.
         user_extension: Pre-built UserToolsExtension (session-bound).
 
     Returns:
         Ordered list of extensions for the orchestrator.
     """
+    expert = route.expert
     groups = ROUTE_TOOL_GROUPS.get(expert, ROUTE_TOOL_GROUPS[ExpertType.CODER])
     commands = _get_commands_for_route(expert)
     extensions: List[Extension] = []
@@ -197,6 +212,20 @@ def build_extensions_for_route(
         # elif group == ToolGroup.GRAPH:
         #     extensions.append(GraphToolsExtension(...))
 
+    # Conditionally add expert extensions for complex tasks
+    if route.is_complex:  # estimated_steps >= 8
+        if expert in (ExpertType.CODER, ExpertType.INFRASTRUCTURE):
+            reviewer = CodeReviewerExtension(review_threshold=2)
+            if reviewer.enabled:
+                extensions.append(reviewer)
+                logger.info("Added CodeReviewerExtension (threshold=2)")
+
+            if expert == ExpertType.CODER:
+                tester = TestGeneratorExtension()
+                if tester.enabled:
+                    extensions.append(tester)
+                    logger.info("Added TestGeneratorExtension")
+
     # Always include these non-tool extensions
     extensions.append(PlainTextExtension())
     extensions.append(AnthropicPromptCaching())
@@ -207,7 +236,8 @@ def build_extensions_for_route(
     )
     logger.info(
         f"Built {len(extensions)} extensions ({tool_count} tool-providing) "
-        f"for route {expert.value}: groups={[g.value for g in groups]}"
+        f"for route {expert.value} (estimated_steps={route.estimated_steps}): "
+        f"groups={[g.value for g in groups]}"
     )
 
     return extensions

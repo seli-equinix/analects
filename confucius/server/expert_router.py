@@ -73,6 +73,8 @@ class RouteDecision:
     detected_user_name: str = ""
     detected_user_facts: List[str] = field(default_factory=list)
     greeting_detected: bool = False
+    # Complexity estimation — router estimates distinct developer actions
+    estimated_steps: int = 10  # default = moderate complexity
 
     @property
     def is_direct_answer(self) -> bool:
@@ -81,6 +83,14 @@ class RouteDecision:
     @property
     def is_clarification(self) -> bool:
         return self.expert == ExpertType.CLARIFY
+
+    @property
+    def is_complex(self) -> bool:
+        return self.estimated_steps >= 8
+
+    @property
+    def is_simple(self) -> bool:
+        return self.estimated_steps <= 3
 
     def to_context_header(self) -> str:
         """Build a one-line routing context string for system prompt injection."""
@@ -101,6 +111,7 @@ class RouteDecision:
             parts.append(f"Scope: {p['search_scope']}")
         if p.get("user_action"):
             parts.append(f"Action: {p['user_action']}")
+        parts.append(f"Estimated steps: {self.estimated_steps}")
         return " | ".join(parts)
 
 
@@ -133,6 +144,25 @@ _USER_EXTRACTION_PROPS: Dict[str, Any] = {
     },
 }
 
+# Step estimation property — added to agent-loop routing tools so the router
+# can estimate task complexity alongside its routing classification.
+_STEP_ESTIMATION_PROP: Dict[str, Any] = {
+    "estimated_steps": {
+        "type": "integer",
+        "description": (
+            "Estimate the number of distinct steps a developer would take "
+            "to complete this task. Examples:\n"
+            "- Fix a typo: 2\n"
+            "- Add error handling to one file: 5\n"
+            "- Refactor a function and add tests: 12\n"
+            "- Trace code across multiple files: 20-30\n"
+            "- Build a new feature with multiple components: 40-60\n"
+            "- Large-scale refactor or new application: 60-100\n"
+            "Default to 10 if unsure."
+        ),
+    },
+}
+
 ROUTING_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
@@ -160,8 +190,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "description": "Primary programming language"
                     },
                     **_USER_EXTRACTION_PROPS,
+                    **_STEP_ESTIMATION_PROP,
                 },
-                "required": ["task_summary"]
+                "required": ["task_summary", "estimated_steps"]
             }
         }
     },
@@ -194,8 +225,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "description": "Cluster nodes involved (node1-5, spark1, spark2)"
                     },
                     **_USER_EXTRACTION_PROPS,
+                    **_STEP_ESTIMATION_PROP,
                 },
-                "required": ["task_summary"]
+                "required": ["task_summary", "estimated_steps"]
             }
         }
     },
@@ -221,8 +253,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "description": "Where to search"
                     },
                     **_USER_EXTRACTION_PROPS,
+                    **_STEP_ESTIMATION_PROP,
                 },
-                "required": ["task_summary"]
+                "required": ["task_summary", "estimated_steps"]
             }
         }
     },
@@ -249,8 +282,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "description": "Planning scope"
                     },
                     **_USER_EXTRACTION_PROPS,
+                    **_STEP_ESTIMATION_PROP,
                 },
-                "required": ["task_summary"]
+                "required": ["task_summary", "estimated_steps"]
             }
         }
     },
@@ -283,8 +317,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "description": "The primary user management action"
                     },
                     **_USER_EXTRACTION_PROPS,
+                    **_STEP_ESTIMATION_PROP,
                 },
-                "required": ["task_summary"]
+                "required": ["task_summary", "estimated_steps"]
             }
         }
     },
@@ -369,6 +404,12 @@ set detected_user_name to the name.
 - ALWAYS route based on the primary task — user extraction is secondary metadata. \
 Example: "Hi I'm Sean, fix the Docker config" → route_to_infrastructure with \
 detected_user_name="Sean" and greeting_detected=true.
+
+Step estimation (apply to all agent routes — coder, infrastructure, search, planner, user):
+- Estimate how many distinct actions (file reads, edits, commands, verifications) the task requires.
+- Think about: how many files to read, how many edits to make, how many tests to run.
+- Simple fixes: 2-5 steps. Standard tasks: 8-15 steps. Large multi-file work: 20-50. \
+Full feature builds: 50-100. Default to 10 if unsure.
 
 ALWAYS call exactly one function. Never respond with plain text."""
 
@@ -510,6 +551,9 @@ async def classify_request(
             span.set_attribute("llm.token_count.prompt", usage.get("prompt_tokens", 0))
             span.set_attribute("llm.token_count.completion", usage.get("completion_tokens", 0))
 
+        # Complexity estimation tracing
+        span.set_attribute("cca.router.estimated_steps", decision.estimated_steps)
+
         # User extraction tracing
         if decision.detected_user_name:
             span.set_attribute("cca.router.detected_user", decision.detected_user_name)
@@ -546,6 +590,13 @@ def _parse_tool_call(
 
     expert = FUNC_TO_EXPERT.get(func_name, ExpertType.CODER)
 
+    # Parse estimated_steps with bounds (1-100), default 10
+    estimated_steps_raw = args.get("estimated_steps", 10)
+    try:
+        estimated_steps = max(1, min(100, int(estimated_steps_raw)))
+    except (ValueError, TypeError):
+        estimated_steps = 10
+
     return RouteDecision(
         expert=expert,
         task_summary=args.get("task_summary", args.get("answer", args.get("question", ""))),
@@ -556,6 +607,7 @@ def _parse_tool_call(
         detected_user_name=args.get("detected_user_name", ""),
         detected_user_facts=args.get("detected_user_facts", []),
         greeting_detected=args.get("greeting_detected", False),
+        estimated_steps=estimated_steps,
     )
 
 
