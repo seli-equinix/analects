@@ -69,6 +69,10 @@ class RouteDecision:
     direct_answer: str = ""             # Only set for ExpertType.DIRECT
     clarification_question: str = ""    # Only set for ExpertType.CLARIFY
     classification_time_ms: float = 0.0
+    # User extraction — populated by router alongside routing classification
+    detected_user_name: str = ""
+    detected_user_facts: List[str] = field(default_factory=list)
+    greeting_detected: bool = False
 
     @property
     def is_direct_answer(self) -> bool:
@@ -105,6 +109,30 @@ class RouteDecision:
 # These are the tool definitions sent to Functionary for classification.
 # Each tool represents a routing decision the model can make.
 
+# User extraction properties — added to EVERY routing tool so the router
+# can extract user info alongside its routing classification in one call.
+_USER_EXTRACTION_PROPS: Dict[str, Any] = {
+    "detected_user_name": {
+        "type": "string",
+        "description": (
+            "User's name if they introduce themselves "
+            "(e.g. 'I\\'m Sean', 'my name is Alex', 'this is John')"
+        ),
+    },
+    "detected_user_facts": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Personal facts mentioned in the message "
+            "(e.g. 'I work at Equinix', 'I prefer Python', 'my project uses Docker')"
+        ),
+    },
+    "greeting_detected": {
+        "type": "boolean",
+        "description": "True if the message contains a greeting or introduction",
+    },
+}
+
 ROUTING_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
@@ -131,6 +159,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "Primary programming language"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["task_summary"]
             }
@@ -164,6 +193,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "items": {"type": "string"},
                         "description": "Cluster nodes involved (node1-5, spark1, spark2)"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["task_summary"]
             }
@@ -190,6 +220,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "enum": ["codebase", "web", "docs", "all"],
                         "description": "Where to search"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["task_summary"]
             }
@@ -217,6 +248,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "enum": ["small", "medium", "large"],
                         "description": "Planning scope"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["task_summary"]
             }
@@ -250,6 +282,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         ],
                         "description": "The primary user management action"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["task_summary"]
             }
@@ -261,7 +294,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
             "name": "answer_directly",
             "description": (
                 "Answer the question directly without an expert. Use ONLY for: "
-                "simple factual questions, greetings, concept explanations, "
+                "simple factual questions, concept explanations, "
                 "quick calculations — anything that needs NO file access, "
                 "NO code execution, and NO agent loop."
             ),
@@ -272,6 +305,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "Direct answer to the user"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["answer"]
             }
@@ -292,6 +326,7 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "Clarifying question for the user"
                     },
+                    **_USER_EXTRACTION_PROPS,
                 },
                 "required": ["question"]
             }
@@ -313,7 +348,7 @@ Routing rules:
 - Searching codebases, docs, or the web (no code changes) → route_to_search
 - Architecture design, planning, task breakdown (no code changes) → route_to_planner
 - User identity, profiles, facts, preferences, skills/aliases → route_to_user
-- Simple greetings, factual questions, concept explanations → answer_directly
+- Simple factual questions, concept explanations → answer_directly
 - Ambiguous requests where you can't determine intent → request_clarification
 
 Disambiguation:
@@ -324,6 +359,16 @@ same message, the coding task is primary → coder. If the message is ONLY about
 their identity, profile, or stored data → user.
 - "Delete my profile", "what do you know about me?", "remember I work at X" → user.
 - "Hi I'm Sean, write me a Python script" → coder (coding is primary).
+
+User extraction (apply to ALL routing functions):
+- If the user introduces themselves ("I'm Sean", "my name is Alex", "this is John"), \
+set detected_user_name to the name.
+- If they mention personal facts ("I work at Equinix", "I prefer Python", \
+"my project uses Docker"), add each fact to detected_user_facts.
+- Set greeting_detected=true for greetings or introductions.
+- ALWAYS route based on the primary task — user extraction is secondary metadata. \
+Example: "Hi I'm Sean, fix the Docker config" → route_to_infrastructure with \
+detected_user_name="Sean" and greeting_detected=true.
 
 ALWAYS call exactly one function. Never respond with plain text."""
 
@@ -465,9 +510,18 @@ async def classify_request(
             span.set_attribute("llm.token_count.prompt", usage.get("prompt_tokens", 0))
             span.set_attribute("llm.token_count.completion", usage.get("completion_tokens", 0))
 
+        # User extraction tracing
+        if decision.detected_user_name:
+            span.set_attribute("cca.router.detected_user", decision.detected_user_name)
+        if decision.detected_user_facts:
+            span.set_attribute("cca.router.detected_facts", str(decision.detected_user_facts[:5]))
+        if decision.greeting_detected:
+            span.set_attribute("cca.router.greeting", True)
+
+        user_info = f", user='{decision.detected_user_name}'" if decision.detected_user_name else ""
         logger.info(
             f"Route: {decision.expert.value} ({elapsed_ms:.0f}ms) "
-            f"| {decision.task_summary[:60]}"
+            f"| {decision.task_summary[:60]}{user_info}"
         )
 
         return decision
@@ -499,6 +553,9 @@ def _parse_tool_call(
         direct_answer=args.get("answer", ""),
         clarification_question=args.get("question", ""),
         classification_time_ms=elapsed_ms,
+        detected_user_name=args.get("detected_user_name", ""),
+        detected_user_facts=args.get("detected_user_facts", []),
+        greeting_detected=args.get("greeting_detected", False),
     )
 
 

@@ -328,12 +328,62 @@ async def _handle_chat_completions(
     if client_type:
         session.client_type = client_type
 
-    # 4. Smart auto-identification on first message of new sessions
+    # 4. Classify request via Functionary router (if enabled)
+    #    Router runs FIRST so it can extract user info alongside routing.
+    user_message = extract_last_user_message(request.messages)
+    route: Optional[RouteDecision] = None
+    router_config = get_router_config()
+
+    if router_config.enabled and user_message:
+        try:
+            # Build recent context for follow-up awareness
+            recent: List[Dict[str, str]] = []
+            for msg in request.messages[-4:]:
+                if msg.role in ("user", "assistant") and msg.content:
+                    recent.append({"role": msg.role, "content": msg.content[:500]})
+
+            route = await classify_request(user_message, router_config, recent)
+            logger.info(
+                f"Router: {route.expert.value} | {route.task_summary[:80]} "
+                f"({route.classification_time_ms:.0f}ms)"
+            )
+            request_span.set_attribute("cca.route", route.expert.value)
+            request_span.set_attribute("cca.route_summary", route.task_summary[:100])
+
+        except Exception as e:
+            logger.warning(f"Router classification failed, falling back to coder: {e}")
+            route = None
+
+    # 5. User identification — router extraction first, regex fallback
     user = None
     id_result: Dict[str, Any] = {}
-    user_message = extract_last_user_message(request.messages)
-    if not session.identified:
-        if user_message:
+    id_source = ""
+
+    if session.identified:
+        user = await user_session_mgr.get_user_for_session(session)
+        id_source = "session"
+    elif user_message:
+        # Try router-extracted name first (Functionary already parsed it)
+        if route and route.detected_user_name:
+            id_result = await user_session_mgr.identify_from_router(
+                name=route.detected_user_name,
+                facts=route.detected_user_facts,
+                session=session,
+                client_type=client_type,
+            )
+            print(
+                f"[ROUTER_ID] identified={id_result.get('identified')}, "
+                f"action={id_result.get('action')}, "
+                f"name={route.detected_user_name}, "
+                f"facts={route.detected_user_facts}",
+                flush=True,
+            )
+            if id_result.get("identified"):
+                user = id_result.get("user")
+                id_source = "router"
+
+        # Fallback to regex extraction if router didn't extract or failed
+        if not user and not session.identified:
             id_result = await user_session_mgr.smart_identify_on_first_message(
                 user_message, session, client_type
             )
@@ -346,11 +396,10 @@ async def _handle_chat_completions(
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
+                id_source = "regex"
             elif id_result.get("action") in ("asking_new", "asking"):
                 # Auto-identify when a name is detected — don't wait
                 # for the LLM to call identify_user (unreliable).
-                # "asking_new" = new user, "asking" = potential match.
-                # identify_user() handles both: find-or-create.
                 extracted_name = id_result.get("extracted_name", "")
                 if extracted_name:
                     create_result = await user_session_mgr.identify_user(
@@ -362,22 +411,29 @@ async def _handle_chat_completions(
                         user = await user_session_mgr.get_user_for_session(
                             session
                         )
+                        id_source = "regex_auto"
                         print(
                             f"[AUTO_ID] user='{extracted_name}', "
                             f"status={create_result.get('status')}",
                             flush=True,
                         )
-    else:
-        user = await user_session_mgr.get_user_for_session(session)
 
-    # 5. Build user context for system prompt injection
+    # 6. Build user context for system prompt injection
     user_context = ""
     if user:
         # Get critical facts for this session
         critical_facts_str = await critical_facts_extractor.format_facts_for_context(
             session_id
         )
-        user_context = build_user_context(user, critical_facts_str, id_result or None)
+        user_context = build_user_context(
+            user, critical_facts_str, id_result or None
+        )
+        # Add router-identified hint so the 80B knows not to call identify tools
+        if id_source == "router":
+            user_context += (
+                "\n[User identified by router — no identification tools needed. "
+                "Use remember_user_fact if user mentions personal details during work.]"
+            )
     elif id_result.get("action") == "asking":
         user_context = build_uncertain_context(
             id_result.get("potential_user", ""),
@@ -386,7 +442,7 @@ async def _handle_chat_completions(
     else:
         user_context = build_anonymous_context()
 
-    # 5b. Enrich context with relevant past notes from Qdrant
+    # 6b. Enrich context with relevant past notes from Qdrant
     if note_observer and user and user.user_id and user_message:
         try:
             relevant_notes = await note_observer.search_notes(
@@ -406,75 +462,50 @@ async def _handle_chat_completions(
         except Exception as e:
             logger.debug("Note enrichment failed (non-fatal): %s", e)
 
-    # 6. Create user tools extension
+    # 7. Create user tools extension
     user_ext = UserToolsExtension(
         session_mgr=user_session_mgr,
         session=session,
         critical_facts=critical_facts_extractor,
     )
 
-    # 7. Classify request via Functionary router (if enabled)
-    route: Optional[RouteDecision] = None
-    router_config = get_router_config()
-    user_message = extract_last_user_message(request.messages)
+    # 7b. Handle DIRECT and CLARIFY routes (no agent loop needed)
+    if route:
+        if route.is_direct_answer and route.direct_answer:
+            execution_time = (time.time() - start_time) * 1000
+            from .models import ContextMetadata
 
-    if router_config.enabled and user_message:
-        try:
-            # Build recent context for follow-up awareness
-            recent: List[Dict[str, str]] = []
-            for msg in request.messages[-4:]:
-                if msg.role in ("user", "assistant") and msg.content:
-                    recent.append({"role": msg.role, "content": msg.content[:500]})
-
-            route = await classify_request(user_message, router_config, recent)
-            logger.info(
-                f"Router: {route.expert.value} | {route.task_summary[:80]} "
-                f"({route.classification_time_ms:.0f}ms)"
+            metadata = ContextMetadata(
+                user_identified=session.identified,
+                user_name=user.display_name if user else None,
+                execution_time_ms=execution_time,
             )
-            request_span.set_attribute("cca.route", route.expert.value)
-            request_span.set_attribute("cca.route_summary", route.task_summary[:100])
+            resp = build_completion_response(
+                content=route.direct_answer,
+                model=request.model or SERVED_MODEL_NAME,
+                metadata=metadata,
+            )
+            return resp
 
-            # Handle DIRECT answers (no agent loop needed)
-            if route.is_direct_answer and route.direct_answer:
-                execution_time = (time.time() - start_time) * 1000
-                from .models import ContextMetadata
+        if route.is_clarification and route.clarification_question:
+            execution_time = (time.time() - start_time) * 1000
+            from .models import ContextMetadata
 
-                metadata = ContextMetadata(
-                    user_identified=session.identified,
-                    user_name=user.display_name if user else None,
-                    execution_time_ms=execution_time,
-                )
-                resp = build_completion_response(
-                    content=route.direct_answer,
-                    model=request.model or SERVED_MODEL_NAME,
-                    metadata=metadata,
-                )
-                return resp
-
-            # Handle CLARIFY — ask user for more info
-            if route.is_clarification and route.clarification_question:
-                execution_time = (time.time() - start_time) * 1000
-                from .models import ContextMetadata
-
-                metadata = ContextMetadata(
-                    user_identified=session.identified,
-                    user_name=user.display_name if user else None,
-                    execution_time_ms=execution_time,
-                )
-                resp = build_completion_response(
-                    content=route.clarification_question,
-                    model=request.model or SERVED_MODEL_NAME,
-                    metadata=metadata,
-                )
-                return resp
-
-        except Exception as e:
-            logger.warning(f"Router classification failed, falling back to coder: {e}")
-            route = None
+            metadata = ContextMetadata(
+                user_identified=session.identified,
+                user_name=user.display_name if user else None,
+                execution_time_ms=execution_time,
+            )
+            resp = build_completion_response(
+                content=route.clarification_question,
+                model=request.model or SERVED_MODEL_NAME,
+                metadata=metadata,
+            )
+            return resp
 
     # 8. Select entry based on routing decision
     #    HttpRoutedEntry dynamically builds extensions from the route's tool groups.
-    #    Each route only gets the tools it needs (USER=6, CODER=~10, INFRA=~10, etc.)
+    #    Each route only gets the tools it needs (USER=6, CODER=~13, INFRA=~13, etc.)
     if route:
         entry = HttpRoutedEntry(
             route=route,

@@ -28,6 +28,7 @@ from ..orchestrator.extensions.plan.llm import LLMCodingArchitectExtension
 from ..analects.code.commands import get_allowed_commands
 from ..analects.infrastructure.commands import get_infra_commands
 from .expert_router import ExpertType
+from .user.memory_extension import UserMemoryExtension
 from .utility_tools import UtilityToolsExtension
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 class ToolGroup(str, Enum):
     """Logical groupings of tools.  Each maps to one extension class."""
     USER = "user"           # UserToolsExtension (6 tools)
+    USER_MEMORY = "user_memory"  # UserMemoryExtension (3 tools: get_context, remember_fact, update_pref)
     WEB = "web"             # UtilityToolsExtension (2 tools)
     FILE = "file"           # FileEditExtension (1 tool: TextEditor)
     SHELL = "shell"         # CommandLineExtension (1 tool: BashTool)
@@ -68,6 +70,7 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
         ToolGroup.SHELL,
         ToolGroup.MEMORY,
         ToolGroup.WEB,
+        ToolGroup.USER_MEMORY,
     ],
     ExpertType.INFRASTRUCTURE: [
         ToolGroup.PLANNER,
@@ -75,11 +78,13 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
         ToolGroup.SHELL,
         ToolGroup.MEMORY,
         ToolGroup.WEB,
+        ToolGroup.USER_MEMORY,
     ],
     ExpertType.SEARCH: [
         ToolGroup.WEB,
         ToolGroup.FILE,
         ToolGroup.MEMORY,
+        ToolGroup.USER_MEMORY,
     ],
     ExpertType.PLANNER: [
         ToolGroup.PLANNER,
@@ -176,6 +181,17 @@ def build_extensions_for_route(
 
         elif group == ToolGroup.WEB:
             extensions.append(UtilityToolsExtension())
+
+        elif group == ToolGroup.USER_MEMORY:
+            # Lightweight 3-tool user memory for non-USER routes.
+            # Extract session_mgr/session/critical_facts from the
+            # pre-built UserToolsExtension (same session context).
+            if user_extension is not None:
+                extensions.append(UserMemoryExtension(
+                    session_mgr=user_extension._session_mgr,  # type: ignore[attr-defined]
+                    session=user_extension._session,  # type: ignore[attr-defined]
+                    critical_facts=user_extension._critical_facts,  # type: ignore[attr-defined]
+                ))
 
         # Future groups will be handled here:
         # elif group == ToolGroup.GRAPH:

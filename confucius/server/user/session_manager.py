@@ -950,6 +950,181 @@ class UserSessionManager:
         }
 
     # ======================================================================
+    # Router-based identification
+    # ======================================================================
+
+    async def identify_from_router(
+        self,
+        name: str,
+        facts: List[str],
+        session: Session,
+        client_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Identify user from router-extracted info (no LLM needed).
+
+        Called when the Functionary router detects a user introduction
+        alongside its routing classification. Uses the same Qdrant lookup
+        as smart_identify_on_first_message but skips regex extraction
+        (already done by the router).
+
+        Args:
+            name: User name extracted by the router.
+            facts: Personal facts extracted by the router.
+            session: Current session.
+            client_type: Client type (e.g. "open-webui").
+
+        Returns:
+            Dict with keys: identified, user, action, confidence, extracted_name.
+        """
+        if session.identified:
+            user = await self.get_user_for_session(session)
+            return {
+                "identified": True,
+                "user": user,
+                "action": "already_identified",
+                "id_source": "router",
+            }
+
+        name = name.strip()
+        if not name or not self._is_valid_name(name):
+            return {
+                "identified": False,
+                "user": None,
+                "action": "invalid_name",
+                "extracted_name": name,
+                "id_source": "router",
+            }
+
+        logger.info("Router ID: extracted name '%s', %d facts", name, len(facts))
+
+        existing_user = await self.find_user_by_name(name)
+
+        if existing_user:
+            score = self._calculate_name_match_score(
+                name, existing_user.display_name, existing_user.aliases
+            )
+            logger.info(
+                "Router ID: found existing user '%s' (score: %.2f)",
+                existing_user.display_name,
+                score,
+            )
+
+            if score >= self.AUTO_LINK_THRESHOLD:
+                session = await self.link_session_to_user(
+                    session, existing_user, client_type
+                )
+                # Store any new facts extracted by the router
+                if facts:
+                    await self._store_facts_from_extraction(
+                        existing_user, facts
+                    )
+                return {
+                    "identified": True,
+                    "user": existing_user,
+                    "action": "auto_linked",
+                    "confidence": score,
+                    "extracted_name": name,
+                    "id_source": "router",
+                    "message": f"Welcome back, {existing_user.display_name}!",
+                }
+            else:
+                # Medium confidence — store context and let caller decide
+                session.context["potential_user_id"] = existing_user.user_id
+                session.context["potential_user_confidence"] = score
+                session.context["extracted_name"] = name
+                await self.save_session(session)
+
+                return {
+                    "identified": False,
+                    "user": None,
+                    "action": "asking",
+                    "confidence": score,
+                    "potential_user": existing_user.display_name,
+                    "extracted_name": name,
+                    "id_source": "router",
+                }
+        else:
+            # New user — auto-create (same as app.py auto-create flow)
+            logger.info("Router ID: new user detected — '%s'", name)
+            create_result = await self.identify_user(
+                name, session, client_type
+            )
+            if create_result.get("status") in (
+                "new_user", "welcome_back", "identified",
+            ):
+                user = await self.get_user_for_session(session)
+                if facts and user:
+                    await self._store_facts_from_extraction(user, facts)
+                return {
+                    "identified": True,
+                    "user": user,
+                    "action": "router_identified",
+                    "extracted_name": name,
+                    "id_source": "router",
+                }
+            return {
+                "identified": False,
+                "user": None,
+                "action": "anonymous",
+                "extracted_name": name,
+                "id_source": "router",
+            }
+
+    async def _store_facts_from_extraction(
+        self,
+        user: "UserProfile",
+        facts: List[str],
+    ) -> None:
+        """Store facts extracted by the router as user facts.
+
+        Parses natural language fact strings into key/value pairs.
+        Examples:
+            "I work at Equinix" → key="employer", value="Equinix"
+            "I prefer Python"   → key="preference_language", value="Python"
+            "my project uses Docker" → key="fact", value="project uses Docker"
+        """
+        # Simple heuristic parsing — extract key/value from common patterns
+        FACT_PATTERNS = [
+            (r"(?:I\s+)?work(?:s)?\s+(?:at|for)\s+(.+)", "employer"),
+            (r"(?:I\s+)?prefer\s+(.+)", "preference"),
+            (r"(?:I(?:'m|\s+am)\s+(?:a|an)\s+)(.+)", "role"),
+            (r"(?:my\s+)?(?:main\s+)?project\s+(?:is|uses?)\s+(.+)", "project"),
+            (r"(?:I\s+)?use\s+(.+)", "tool"),
+        ]
+        for fact_str in facts[:10]:  # cap at 10 to prevent abuse
+            fact_str = fact_str.strip()
+            if not fact_str:
+                continue
+
+            key = "fact"
+            value = fact_str
+
+            for pattern, fact_key in FACT_PATTERNS:
+                match = re.match(pattern, fact_str, re.IGNORECASE)
+                if match:
+                    key = fact_key
+                    value = match.group(1).strip()
+                    break
+
+            try:
+                # Create a temporary session-like context for remember_user_fact
+                temp_session = Session(
+                    session_id=f"router-extract-{user.user_id}",
+                    user_id=user.user_id,
+                    identified=True,
+                )
+                await self.remember_user_fact(temp_session, key, value)
+                logger.debug(
+                    "Router ID: stored fact %s=%s for user %s",
+                    key, value, user.user_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Router ID: failed to store fact '%s' for user %s: %s",
+                    fact_str, user.user_id, e,
+                )
+
+    # ======================================================================
     # Name extraction
     # ======================================================================
 
