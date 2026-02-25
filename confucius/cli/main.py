@@ -3,6 +3,7 @@
 # pyre-strict
 
 import asyncio
+import logging
 import signal
 
 import click
@@ -71,6 +72,12 @@ def serve_cmd(host: str, port: int, workers: int) -> None:
     Usage: confucius serve --port 8100
     """
     import uvicorn
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
     from confucius.server.app import app
 
