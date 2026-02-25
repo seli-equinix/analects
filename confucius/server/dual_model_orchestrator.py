@@ -212,13 +212,18 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     async def on_llm_output(
         self, text: str, context: AnalectRunContext
     ) -> str:
-        """Suppress 8B text — only 80B text reaches the user.
+        """Suppress 8B text only when it also generated tool calls.
 
         Called in get_root_tag() (llm.py:186) AFTER _invoke_llm_impl().
-        Tool calls are already captured in _tool_use_queue by
-        _process_response(), so suppressing text does NOT affect tools.
+        At this point, _process_response() has already populated
+        _tool_use_queue with any tool calls from this iteration.
+
+        If the 8B generated text WITH tools → suppress (intermediate chatter).
+        If the 8B generated text WITHOUT tools → final synthesis → show it.
+        The queue hasn't been cleared yet (that happens in _process_messages
+        finally block), so checking it here is valid.
         """
-        if self._using_fast_model:
+        if self._using_fast_model and self._tool_use_queue:
             if text.strip():
                 logger.debug(
                     "Dual-model: suppressing 8B text (%d chars): %.80s...",
@@ -226,6 +231,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     text,
                 )
             return ""  # Suppress — PlainTextExtension won't call io.ai()
+        if self._using_fast_model and not self._tool_use_queue:
+            logger.info(
+                "Dual-model: 8B final synthesis (%d chars) — showing to user",
+                len(text),
+            )
         return await super().on_llm_output(text, context)
 
     # ── Tool tracking + quality gate ─────────────────────────────
