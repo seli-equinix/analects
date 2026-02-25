@@ -24,6 +24,9 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 redis[hiredis]>=5.0.0
 qdrant-client>=1.12.0
+# Code intelligence (tree-sitter AST, Memgraph graph)
+tree-sitter==0.21.3
+neo4j>=5.0.0
 # Phoenix observability (OTel tracing → Phoenix UI)
 opentelemetry-api>=1.25.0
 opentelemetry-sdk>=1.25.0

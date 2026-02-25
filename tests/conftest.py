@@ -11,11 +11,18 @@ Annotations are deferred until AFTER the span is closed and flushed to
 Phoenix. This avoids 404 errors caused by posting annotations for spans
 that haven't arrived at the server yet (BatchSpanProcessor buffers for
 5 seconds by default).
+
+Server load management:
+  - Inter-test cooldown (CCA_TEST_COOLDOWN env var, default 3s) prevents
+    overwhelming the CCA server and vLLM backend between tests.
+  - LLM judge is opt-in (--with-judge flag or CCA_RUN_JUDGE=1 env var)
+    since it doubles vLLM load by making 2 additional calls per test.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 
@@ -40,8 +47,22 @@ CCA_BASE_URL = "http://192.168.4.205:8500"
 PROJECT_USER = "cca-user-tests"
 PROJECT_SEARCH = "cca-search-tests"
 
+# Inter-test cooldown (seconds) to prevent server overload.
+# Each test triggers LLM inference on vLLM — without cooldown,
+# sequential tests pile up requests faster than vLLM can drain them.
+TEST_COOLDOWN = float(os.getenv("CCA_TEST_COOLDOWN", "3"))
+
 
 # ==================== Markers ====================
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--with-judge",
+        action="store_true",
+        default=False,
+        help="Enable LLM judge evaluators (doubles vLLM load, off by default)",
+    )
 
 
 def pytest_configure(config):
@@ -150,6 +171,13 @@ def trace_test(request, phoenix_tracer):
     time.sleep(1)
     post_deferred_annotations(span)
 
+    # Inter-test cooldown: let vLLM drain its queue before the next test
+    # starts a new LLM call. Without this, sequential tests pile up
+    # requests and cause timeout cascades.
+    if TEST_COOLDOWN > 0:
+        log.debug("Cooldown %.1fs before next test", TEST_COOLDOWN)
+        time.sleep(TEST_COOLDOWN)
+
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
@@ -167,13 +195,27 @@ VLLM_MODEL = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
 
 
 @pytest.fixture(scope="session")
-def judge_model():
+def judge_model(request):
     """Direct vLLM connection for LLM-as-judge evaluators.
 
-    Talks directly to vLLM on Spark2:8000/v1 (raw OpenAI-compatible API).
-    Does NOT go through CCA. CCA is the system under test; this is the
-    independent judge.
+    **Opt-in**: Returns None (disabled) unless --with-judge flag is passed
+    or CCA_RUN_JUDGE=1 env var is set. This is because the LLM judge makes
+    2 additional vLLM calls per test (response_quality + task_completion),
+    doubling the load on the shared Spark2 vLLM server.
+
+    When enabled, talks directly to vLLM on Spark2:8000/v1 (raw
+    OpenAI-compatible API). Does NOT go through CCA. CCA is the system
+    under test; the judge is an independent assessor.
     """
+    # Check opt-in flag
+    use_judge = (
+        request.config.getoption("--with-judge", default=False)
+        or os.getenv("CCA_RUN_JUDGE", "0") == "1"
+    )
+    if not use_judge:
+        log.info("LLM judge disabled (use --with-judge or CCA_RUN_JUDGE=1 to enable)")
+        return None
+
     try:
         from phoenix.evals import OpenAIModel
     except ImportError:
@@ -184,10 +226,12 @@ def judge_model():
 
         resp = httpx.get(f"{VLLM_BASE_URL[:-3]}/health", timeout=5)
         if resp.status_code != 200:
+            log.warning("vLLM not healthy at %s — judge disabled", VLLM_BASE_URL)
             return None
     except Exception:
         return None
 
+    log.info("LLM judge enabled — 2 extra vLLM calls per test")
     return OpenAIModel(
         model=VLLM_MODEL,
         base_url=VLLM_BASE_URL,

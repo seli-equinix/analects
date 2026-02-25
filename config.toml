@@ -124,3 +124,15 @@ enabled = false
 url = "http://192.168.4.204:8001"
 confidence_threshold = 0.8
 mechanical_turns_only = true
+
+# ──────────────────────────────────────────────
+# CODE INTELLIGENCE — Workspace Indexer
+# ──────────────────────────────────────────────
+# Paths to index when `index_workspace` is called without a specific path.
+# These directories are walked recursively for Python, Bash, PowerShell,
+# YAML, and Markdown files.
+
+[indexer]
+paths = ["/workspace", "/home/seli/docker-swarm-stacks"]
+collection = "codebase_files"
+skip_dirs = [".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist"]

@@ -107,6 +107,9 @@ services:
       - QDRANT_URL=http://192.168.4.205:6333
       - EMBEDDING_URL=http://192.168.4.205:8200
       - SEARXNG_URL=http://192.168.4.205:8888
+      # Code intelligence backends
+      - MEMGRAPH_HOST=192.168.4.202
+      - MEMGRAPH_PORT=7687
       # Phoenix observability (traces → Phoenix UI)
       - PHOENIX_COLLECTOR_ENDPOINT=http://192.168.4.204:4317
       - PHOENIX_PROJECT_NAME=cca-http
@@ -116,6 +119,8 @@ services:
       - ${CCA_WORKSPACE:-/home/seli/code}:/workspace:rw
       - cca-sessions:/home/cca/.confucius
       - ./config.toml:/etc/cca/config.toml:ro
+      # Indexable paths for code intelligence (read-only)
+      - /home/seli/docker-swarm-stacks:/home/seli/docker-swarm-stacks:ro
     working_dir: /workspace
     restart: unless-stopped
 

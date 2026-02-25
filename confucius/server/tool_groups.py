@@ -48,10 +48,10 @@ class ToolGroup(str, Enum):
     SHELL = "shell"         # CommandLineExtension (1 tool: BashTool)
     MEMORY = "memory"       # HierarchicalMemoryExtension (6 tools)
     PLANNER = "planner"     # LLMCodingArchitectExtension (0 tools, prompt-based)
+    CODE_SEARCH = "code_search"  # CodeSearchExtension (3 tools: search_codebase, search_knowledge, index_workspace)
+    GRAPH = "graph"         # GraphToolsExtension (3 tools: query_call_graph, find_orphan_functions, analyze_dependencies)
+    DOCUMENT = "document"   # DocumentToolsExtension (4 tools: upload_document, search_documents, list_session_docs, promote_doc_to_knowledge)
     # Future groups — uncomment as extensions are ported:
-    # GRAPH = "graph"       # GraphToolsExtension (3 tools)
-    # SEARCH = "search"     # SearchToolsExtension (3 tools)
-    # DOCUMENT = "document" # DocumentToolsExtension (4 tools)
     # VISION = "vision"     # VisionToolsExtension (1 tool)
     # RULES = "rules"       # RulesToolsExtension (4 tools)
     # GIT = "git"           # GitToolsExtension (1 tool)
@@ -73,6 +73,9 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
         ToolGroup.MEMORY,
         ToolGroup.WEB,
         ToolGroup.USER_MEMORY,
+        ToolGroup.CODE_SEARCH,
+        ToolGroup.GRAPH,
+        ToolGroup.DOCUMENT,
     ],
     ExpertType.INFRASTRUCTURE: [
         ToolGroup.PLANNER,
@@ -81,12 +84,17 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
         ToolGroup.MEMORY,
         ToolGroup.WEB,
         ToolGroup.USER_MEMORY,
+        ToolGroup.CODE_SEARCH,
+        ToolGroup.GRAPH,
+        ToolGroup.DOCUMENT,
     ],
     ExpertType.SEARCH: [
         ToolGroup.WEB,
         ToolGroup.FILE,
         ToolGroup.MEMORY,
         ToolGroup.USER_MEMORY,
+        ToolGroup.CODE_SEARCH,
+        ToolGroup.DOCUMENT,
     ],
     ExpertType.PLANNER: [
         ToolGroup.PLANNER,
@@ -148,6 +156,9 @@ def _get_functions() -> list[Callable[..., Any]]:
 def build_extensions_for_route(
     route: RouteDecision,
     user_extension: Optional[Extension] = None,
+    backend_clients: Optional[Any] = None,
+    session_id: str = "",
+    user_id: Optional[str] = None,
 ) -> List[Extension]:
     """Build the extension list for a given route.
 
@@ -159,6 +170,9 @@ def build_extensions_for_route(
     Args:
         route: The RouteDecision from the Functionary router.
         user_extension: Pre-built UserToolsExtension (session-bound).
+        backend_clients: Shared BackendClients for code intelligence extensions.
+        session_id: Current session ID (for document scoping).
+        user_id: Current user ID (for user knowledge collections).
 
     Returns:
         Ordered list of extensions for the orchestrator.
@@ -208,9 +222,30 @@ def build_extensions_for_route(
                     critical_facts=user_extension._critical_facts,  # type: ignore[attr-defined]
                 ))
 
-        # Future groups will be handled here:
-        # elif group == ToolGroup.GRAPH:
-        #     extensions.append(GraphToolsExtension(...))
+        elif group == ToolGroup.CODE_SEARCH:
+            if backend_clients is not None:
+                from .code_intelligence.search_extension import CodeSearchExtension
+                extensions.append(CodeSearchExtension(
+                    backend_clients=backend_clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                ))
+
+        elif group == ToolGroup.GRAPH:
+            if backend_clients is not None and backend_clients.memgraph is not None:
+                from .code_intelligence.graph_extension import GraphToolsExtension
+                extensions.append(GraphToolsExtension(
+                    backend_clients=backend_clients,
+                ))
+
+        elif group == ToolGroup.DOCUMENT:
+            if backend_clients is not None:
+                from .code_intelligence.document_extension import DocumentToolsExtension
+                extensions.append(DocumentToolsExtension(
+                    backend_clients=backend_clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                ))
 
     # Conditionally add expert extensions for complex tasks
     if route.is_complex:  # estimated_steps >= 8

@@ -19,6 +19,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install system dependencies (infra expert needs SSH, Docker CLI, network tools)
+# tree-sitter needs build-essential, nodejs, npm for grammar compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -28,11 +29,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     dnsutils \
     net-tools \
+    build-essential \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install tree-sitter CLI (needed for PowerShell grammar generation)
+RUN npm install -g tree-sitter-cli@0.20.8
 
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Build tree-sitter language grammars (Python, Bash, PowerShell, YAML, Markdown)
+COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.py
+RUN python3 /tmp/build_languages.py && rm /tmp/build_languages.py
 
 # Install CCA package (editable for development)
 COPY pyproject.toml setup.py ./

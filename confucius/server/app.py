@@ -56,6 +56,7 @@ from .models import (
     build_completion_response,
     generate_completion_id,
 )
+from .backends import BackendClients
 from .note_observer import NoteObserver, format_notes_for_prompt
 from .session_pool import SessionPool
 from .streaming import sse_stream
@@ -98,12 +99,13 @@ session_pool: SessionPool
 user_session_mgr: UserSessionManager
 critical_facts_extractor: CriticalFactsExtractor
 note_observer: Optional[NoteObserver] = None
+backend_clients: Optional[BackendClients] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Application startup / shutdown lifecycle."""
-    global session_pool, user_session_mgr, critical_facts_extractor, note_observer
+    global session_pool, user_session_mgr, critical_facts_extractor, note_observer, backend_clients
 
     logger.info("CCA HTTP server starting up...")
 
@@ -139,6 +141,18 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         logger.warning("NoteObserver init failed (non-fatal): %s", e)
         note_observer = None
 
+    # Initialise backend clients (Qdrant, Memgraph, Embedding — for code intelligence)
+    try:
+        backend_clients = BackendClients()
+        await backend_clients.initialize(redis=user_session_mgr._redis)
+        if backend_clients.available:
+            logger.info("BackendClients initialised (Qdrant + Embedding available)")
+        else:
+            logger.warning("BackendClients: partial — some backends unavailable")
+    except Exception as e:
+        logger.warning("BackendClients init failed (non-fatal): %s", e)
+        backend_clients = None
+
     # Initialise session pool (manages Confucius instances)
     session_pool = SessionPool(max_sessions=50, session_ttl=3600)
 
@@ -155,6 +169,8 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     except asyncio.CancelledError:
         pass
 
+    if backend_clients:
+        await backend_clients.close()
     if note_observer:
         await note_observer.close()
     await close_router_client()
@@ -512,6 +528,9 @@ async def _handle_chat_completions(
             route=route,
             user_context=user_context,
             user_extension=user_ext,
+            backend_clients=backend_clients,
+            session_id=session_id,
+            user_id=user.user_id if user else None,
         )
     else:
         # No router or router disabled — default coder route
@@ -519,6 +538,9 @@ async def _handle_chat_completions(
             route=RouteDecision(expert=ExpertType.CODER, task_summary="Default (no router)"),
             user_context=user_context,
             user_extension=user_ext,
+            backend_clients=backend_clients,
+            session_id=session_id,
+            user_id=user.user_id if user else None,
         )
 
     # 9. Validate user message (already extracted in step 7)

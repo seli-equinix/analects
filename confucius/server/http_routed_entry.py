@@ -101,11 +101,17 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         route: RouteDecision,
         user_context: str = "",
         user_extension: Optional[Extension] = None,
+        backend_clients: Optional[Any] = None,
+        session_id: str = "",
+        user_id: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._route = route
         self._user_context = user_context
         self._user_extension = user_extension
+        self._backend_clients = backend_clients
+        self._session_id = session_id
+        self._user_id = user_id
 
     @classmethod
     def display_name(cls) -> str:
@@ -144,6 +150,9 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         extensions = build_extensions_for_route(
             route=self._route,
             user_extension=self._user_extension,
+            backend_clients=self._backend_clients,
+            session_id=self._session_id,
+            user_id=self._user_id,
         )
 
         # 5. Compute dynamic iteration limit from estimated steps
