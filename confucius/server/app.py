@@ -399,12 +399,10 @@ async def _handle_chat_completions(
                 session=session,
                 client_type=client_type,
             )
-            print(
-                f"[ROUTER_ID] identified={id_result.get('identified')}, "
-                f"action={id_result.get('action')}, "
-                f"name={route.detected_user_name}, "
-                f"facts={route.detected_user_facts}",
-                flush=True,
+            logger.info(
+                "Router ID: identified=%s, action=%s, name=%s, facts=%s",
+                id_result.get("identified"), id_result.get("action"),
+                route.detected_user_name, route.detected_user_facts,
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
@@ -415,12 +413,10 @@ async def _handle_chat_completions(
             id_result = await user_session_mgr.smart_identify_on_first_message(
                 user_message, session, client_type
             )
-            print(
-                f"[SMART_ID] identified={id_result.get('identified')}, "
-                f"action={id_result.get('action')}, "
-                f"name={id_result.get('extracted_name', '')}, "
-                f"keys={list(id_result.keys())}",
-                flush=True,
+            logger.info(
+                "Smart ID: identified=%s, action=%s, name=%s",
+                id_result.get("identified"), id_result.get("action"),
+                id_result.get("extracted_name", ""),
             )
             if id_result.get("identified"):
                 user = id_result.get("user")
@@ -440,10 +436,9 @@ async def _handle_chat_completions(
                             session
                         )
                         id_source = "regex_auto"
-                        print(
-                            f"[AUTO_ID] user='{extracted_name}', "
-                            f"status={create_result.get('status')}",
-                            flush=True,
+                        logger.info(
+                            "Auto ID: user=%s, status=%s",
+                            extracted_name, create_result.get("status"),
                         )
 
     # 6. Build user context for system prompt injection
