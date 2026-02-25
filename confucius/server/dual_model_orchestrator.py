@@ -283,11 +283,14 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
             await self._process_messages(task, context)
 
         elif self._using_fast_model:
-            # 8B finished research (no more tools) → force 80B synthesis
+            # 8B finished research (no more tools) → force 80B synthesis.
+            # Lock to 80B for rest of request to prevent ping-pong loops
+            # (80B calls web_search → 8B loops → force 80B → repeat).
             logger.info(
                 "Dual-model: 8B research complete — forcing 80B synthesis"
             )
-            self._last_tool_names = []  # _should_use_fast_model() → False
+            self._last_tool_names = []
+            self._force_primary = True  # Stay on 80B from here on
             await self._process_messages(task, context)
 
         else:
