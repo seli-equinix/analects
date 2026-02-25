@@ -38,11 +38,22 @@ from ..core.tracing import (
     INPUT_VALUE,
     OUTPUT_VALUE,
     LLM_MODEL_NAME,
-    LLM_INPUT_MESSAGES,
-    LLM_OUTPUT_MESSAGES,
-    LLM_INVOCATION_PARAMS,
-    LLM_TOOLS,
 )
+
+try:
+    from openinference.instrumentation import (
+        get_llm_input_message_attributes,
+        get_llm_output_message_attributes,
+        get_llm_invocation_parameter_attributes,
+        get_llm_tool_attributes,
+        Message,
+        Tool,
+        ToolCall,
+        ToolCallFunction,
+    )
+    _HAS_OPENINFERENCE = True
+except ImportError:
+    _HAS_OPENINFERENCE = False
 
 logger = logging.getLogger(__name__)
 
@@ -489,15 +500,25 @@ async def classify_request(
             "max_tokens": 512,
         }
 
-        # Record full LLM request details in span for Phoenix visibility
-        span.set_attribute(LLM_INPUT_MESSAGES, json.dumps(messages))
-        span.set_attribute(LLM_INVOCATION_PARAMS, json.dumps({
-            "model": payload["model"],
-            "temperature": payload["temperature"],
-            "max_tokens": payload["max_tokens"],
-            "tool_choice": payload["tool_choice"],
-        }))
-        span.set_attribute(LLM_TOOLS, json.dumps(ROUTING_TOOLS))
+        # Record full LLM request in span using OpenInference format
+        # (flattened dot-notation attributes that Phoenix renders natively)
+        if _HAS_OPENINFERENCE:
+            try:
+                oi_msgs = [Message(role=m["role"], content=m["content"]) for m in messages]
+                for k, v in get_llm_input_message_attributes(oi_msgs):
+                    span.set_attribute(k, v)
+                for k, v in get_llm_invocation_parameter_attributes({
+                    "model": payload["model"],
+                    "temperature": payload["temperature"],
+                    "max_tokens": payload["max_tokens"],
+                    "tool_choice": payload["tool_choice"],
+                }):
+                    span.set_attribute(k, v)
+                oi_tools = [Tool(json_schema=t) for t in ROUTING_TOOLS]
+                for k, v in get_llm_tool_attributes(oi_tools):
+                    span.set_attribute(k, v)
+            except Exception as e:
+                logger.debug(f"Failed to set OpenInference input attrs: {e}")
 
         try:
             resp = await client.post(
@@ -522,9 +543,28 @@ async def classify_request(
 
         elapsed_ms = (time.monotonic() - start) * 1000
 
-        # Record full LLM response in span
-        response_message = data.get("choices", [{}])[0].get("message", {})
-        span.set_attribute(LLM_OUTPUT_MESSAGES, json.dumps([response_message]))
+        # Record full LLM response in span using OpenInference format
+        if _HAS_OPENINFERENCE:
+            try:
+                resp_msg = data.get("choices", [{}])[0].get("message", {})
+                oi_tool_calls = []
+                for tc in resp_msg.get("tool_calls", []):
+                    fn = tc.get("function", {})
+                    oi_tool_calls.append(ToolCall(
+                        function=ToolCallFunction(
+                            name=fn.get("name", ""),
+                            arguments=fn.get("arguments", "{}"),
+                        )
+                    ))
+                oi_out = [Message(
+                    role=resp_msg.get("role", "assistant"),
+                    content=resp_msg.get("content"),
+                    tool_calls=oi_tool_calls or None,
+                )]
+                for k, v in get_llm_output_message_attributes(oi_out):
+                    span.set_attribute(k, v)
+            except Exception as e:
+                logger.debug(f"Failed to set OpenInference output attrs: {e}")
 
         # Parse tool call from response
         choices = data.get("choices", [])
