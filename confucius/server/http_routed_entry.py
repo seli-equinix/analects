@@ -23,6 +23,8 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from pydantic import PrivateAttr
+
 from ..core import types as cf
 from ..core.analect import Analect, AnalectRunContext
 from ..core.config import get_llm_params
@@ -96,6 +98,9 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
     Unified entry for all routed requests.
     """
 
+    # Populated after impl() runs — exposes orchestrator metrics
+    _tool_iterations: int = PrivateAttr(default=0)
+
     def __init__(
         self,
         route: RouteDecision,
@@ -112,9 +117,6 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         self._backend_clients = backend_clients
         self._session_id = session_id
         self._user_id = user_id
-        # Populated after impl() runs — exposes orchestrator metrics
-        self.tool_iterations: int = 0
-        self.tool_names: list[str] = []
 
     @classmethod
     def display_name(cls) -> str:
@@ -197,6 +199,6 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         # _num_iterations counts LLM round-trips; subtract 1 for the final
         # text-only response to get the number of tool-calling iterations.
         iters = orchestrator._num_iterations
-        self.tool_iterations = max(0, iters - 1) if iters > 0 else 0
+        self._tool_iterations = max(0, iters - 1) if iters > 0 else 0
 
         return EntryOutput()

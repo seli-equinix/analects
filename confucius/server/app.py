@@ -581,7 +581,7 @@ async def _handle_chat_completions(
                         span.set_attribute("cca.status", "success")
                         span.set_attribute(
                             "cca.tool_iterations",
-                            getattr(entry, "tool_iterations", 0),
+                            getattr(entry, "_tool_iterations", 0),
                         )
 
                         # Fire note observer in background with span context
@@ -668,7 +668,7 @@ async def _handle_chat_completions(
                 from .models import ContextMetadata
 
                 # Extract tool iteration count from the entry
-                tool_iters = getattr(entry, "tool_iterations", 0)
+                tool_iters = getattr(entry, "_tool_iterations", 0)
                 route_name = route.expert.value if route else None
 
                 metadata = ContextMetadata(
