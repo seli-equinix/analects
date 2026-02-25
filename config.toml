@@ -9,6 +9,7 @@ openai_model_prefixes = ["qwen", "/models/"]
 [active]
 coder = "local"           # "cloud" = Azure GPT-5.2, "local" = Spark2 Qwen3-80B
 note_taker = "local"      # "cloud" = Bedrock Claude Sonnet, "local" = Spark1 Qwen3-8B
+tool_orchestrator = "local" # 8B model for research tool iterations (dual-model orchestrator)
 planner = "local"         # optional — comment out to use hardcoded default
 reviewer = "local"        # optional — comment out to disable code review expert
 tester = "local"          # optional — comment out to disable test generator expert
@@ -97,6 +98,15 @@ provider = "openai"
 base_url = "http://192.168.4.208:8000/v1"
 initial_max_tokens = 4096
 temperature = 0.1
+
+[providers.local.tool_orchestrator]
+model = "/models/Qwen3-8B-FP8"
+provider = "openai"
+base_url = "http://192.168.4.205:8400/v1"
+api_key_env = "OPENAI_API_KEY"
+initial_max_tokens = 4096
+max_tokens = 8192
+temperature = 0.3
 
 [providers.local.tester]
 model = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"

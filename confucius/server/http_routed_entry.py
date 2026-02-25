@@ -27,13 +27,13 @@ from pydantic import PrivateAttr
 
 from ..core import types as cf
 from ..core.analect import Analect, AnalectRunContext
-from ..core.config import get_llm_params
+from ..core.config import CCAConfigError, get_llm_params
 from ..core.entry.base import EntryInput, EntryOutput
 from ..core.entry.decorators import public
 from ..core.entry.mixin import EntryAnalectMixin
 from ..core.memory import CfMessage
-from ..orchestrator.anthropic import AnthropicLLMOrchestrator
 from ..orchestrator.extensions import Extension
+from .dual_model_orchestrator import DualModelOrchestrator
 from ..orchestrator.types import OrchestratorInput
 
 from ..analects.code.tasks import get_task_definition, get_search_task_definition
@@ -172,7 +172,7 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
         )
 
         # 6. Create orchestrator and run
-        orchestrator = AnthropicLLMOrchestrator(
+        orchestrator = DualModelOrchestrator(
             llm_params=[
                 get_llm_params("coder"),
             ],
@@ -180,6 +180,11 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
             raw_output_parser=None,
             max_iterations=max_iterations,
         )
+        # Inject fast model for research iterations (graceful if not configured)
+        try:
+            orchestrator._tool_orch_params = get_llm_params("tool_orchestrator")
+        except CCAConfigError:
+            pass  # Falls back to 80B for all iterations
 
         await context.invoke_analect(
             orchestrator,
