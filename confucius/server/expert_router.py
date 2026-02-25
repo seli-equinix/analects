@@ -502,6 +502,7 @@ async def classify_request(
 
         # Record full LLM request in span using OpenInference format
         # (flattened dot-notation attributes that Phoenix renders natively)
+        print(f"[ROUTER_SPAN] _HAS_OPENINFERENCE={_HAS_OPENINFERENCE}", flush=True)
         if _HAS_OPENINFERENCE:
             try:
                 oi_msgs = [Message(role=m["role"], content=m["content"]) for m in messages]
@@ -520,12 +521,13 @@ async def classify_request(
                 tool_attrs = get_llm_tool_attributes(oi_tools)
                 for k, v in tool_attrs.items():
                     span.set_attribute(k, v)
-                logger.info(
-                    f"Router span enriched: {len(input_attrs)} input + "
-                    f"{len(inv_attrs)} param + {len(tool_attrs)} tool attrs"
+                print(
+                    f"[ROUTER_SPAN] enriched: {len(input_attrs)} input + "
+                    f"{len(inv_attrs)} param + {len(tool_attrs)} tool attrs",
+                    flush=True,
                 )
             except Exception as e:
-                logger.warning(f"Failed to set OpenInference input attrs: {e}")
+                print(f"[ROUTER_SPAN] FAILED input attrs: {e}", flush=True)
 
         try:
             resp = await client.post(
@@ -571,7 +573,7 @@ async def classify_request(
                 for k, v in get_llm_output_message_attributes(oi_out).items():
                     span.set_attribute(k, v)
             except Exception as e:
-                logger.debug(f"Failed to set OpenInference output attrs: {e}")
+                print(f"[ROUTER_SPAN] FAILED output attrs: {e}", flush=True)
 
         # Parse tool call from response
         choices = data.get("choices", [])
