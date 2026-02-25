@@ -1,33 +1,31 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
 
-"""Dual-model orchestrator — dynamic model selection per iteration.
+"""Dual-model orchestrator — 8B researches, 80B synthesizes.
 
-Presents as a single agent-as-a-model. The 8B handles research tool
-orchestration silently, the 80B handles reasoning and creation visibly.
-A quality gate escalates to 80B if the 8B struggles.
+The 8B is a silent research agent: it orchestrates tools (web_search,
+fetch_url, etc.) and builds context through analysis. Its text output
+is preserved in memory as context for the 80B but never streamed to
+the user. The 80B always generates the final user-facing response.
 
 Architecture:
-    _process_messages() is recursive. Each call invokes:
-        get_root_tag() → get_llm_params() → fresh _get_chat(params) → LLM call
+    _process_messages() overrides the Anthropic iteration loop to add a
+    third branch: when the 8B finishes research (no more tool calls),
+    force one more iteration with the 80B for synthesis.
 
-    get_llm_params() is called ONCE per iteration (llm.py:179). A fresh chat
-    object is created each time, so switching models between iterations is
-    seamless. We override get_llm_params() to decide which model to use.
+    get_llm_params() is called ONCE per iteration (llm.py:179). A fresh
+    chat object is created each time, so switching models between
+    iterations is seamless.
 
-    _num_iterations is incremented in base.py:221 AFTER get_root_tag() returns,
-    so during get_llm_params(), _num_iterations == 0 on the first iteration.
+    _num_iterations is incremented in base.py:221 AFTER get_root_tag()
+    returns, so during get_llm_params(), _num_iterations == 0 on the
+    first iteration.
 
-    super().get_llm_params() (anthropic.py:42-78) calls parent .copy(), adds
-    tools to additional_kwargs["tools"], and adds Claude-specific beta tags.
-    We MUST call super() first so the 8B also gets tool definitions.
-
-Text suppression:
-    LLM response → _process_response() separates text (returned as str) from
-    tool_use blocks (queued in _tool_use_queue). Text flows through
-    on_llm_output() → on_plain_text() → PlainTextExtension → io.ai() → user.
-    Suppressing in on_llm_output() prevents text from reaching the user.
-    Tool execution is unaffected (tools are queued before on_llm_output).
+Context preservation:
+    on_llm_output() returning "" would lose text from memory (since
+    _process_plain_text stores the post-on_llm_output text). So we
+    explicitly save 8B text to memory BEFORE returning "" for display.
+    The 80B then sees all research context in get_memory_by_visibility().
 """
 
 from __future__ import annotations
@@ -38,11 +36,14 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from pydantic import PrivateAttr
 
+from ..core import types as cf
 from ..core.analect import AnalectRunContext
 from ..core.chat_models.bedrock.api.invoke_model import anthropic as ant
 from ..core.llm_manager import LLMParams
+from ..core.memory import CfMessage
 from ..core.tracing import get_tracer, OPENINFERENCE_SPAN_KIND, OUTPUT_VALUE
 from ..orchestrator.anthropic import AnthropicLLMOrchestrator
+from ..orchestrator.exceptions import OrchestratorInterruption
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +75,14 @@ RESEARCH_TOOLS = frozenset({
 class DualModelOrchestrator(AnthropicLLMOrchestrator):
     """Orchestrator that switches between fast 8B and reasoning 80B per iteration.
 
-    Acts as a single agent-as-a-model:
-    - 8B text is suppressed (user never sees intermediate chatter)
-    - 80B text is shown normally
+    The 8B is a research agent — it gathers data via tools and builds
+    context through analysis. Its text is preserved in memory (for the
+    80B) but never streamed to the user. The 80B always synthesizes
+    the final response.
+
+    Key behaviours:
+    - 8B text → memory (context for 80B), not streamed to user
+    - When 8B finishes research → force 80B synthesis iteration
     - Quality gate escalates to 80B after consecutive 8B failures
     """
 
@@ -207,36 +213,74 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
             span.set_attribute(OUTPUT_VALUE, str(result)[:500] if result else "")
             return result
 
-    # ── Silent 8B output ─────────────────────────────────────────
+    # ── 8B context preservation ──────────────────────────────────
 
     async def on_llm_output(
         self, text: str, context: AnalectRunContext
     ) -> str:
-        """Suppress 8B text only when it also generated tool calls.
+        """8B text → memory (context for 80B), not streamed to user.
 
-        Called in get_root_tag() (llm.py:186) AFTER _invoke_llm_impl().
-        At this point, _process_response() has already populated
-        _tool_use_queue with any tool calls from this iteration.
-
-        If the 8B generated text WITH tools → suppress (intermediate chatter).
-        If the 8B generated text WITHOUT tools → final synthesis → show it.
-        The queue hasn't been cleared yet (that happens in _process_messages
-        finally block), so checking it here is valid.
+        on_llm_output() returning "" would lose the text from memory
+        because _process_plain_text() stores the post-on_llm_output
+        text. We explicitly save 8B text to memory BEFORE returning ""
+        so the 80B sees the 8B's research analysis in subsequent
+        iterations via get_memory_by_visibility().
         """
-        if self._using_fast_model and self._tool_use_queue:
+        if self._using_fast_model:
             if text.strip():
-                logger.debug(
-                    "Dual-model: suppressing 8B text (%d chars): %.80s...",
+                # Preserve 8B's research context in memory for 80B
+                context.memory_manager.add_messages([
+                    CfMessage(type=cf.MessageType.AI, content=text)
+                ])
+                logger.info(
+                    "Dual-model: 8B context (%d chars) → memory for 80B",
                     len(text),
-                    text,
                 )
-            return ""  # Suppress — PlainTextExtension won't call io.ai()
-        if self._using_fast_model and not self._tool_use_queue:
-            logger.info(
-                "Dual-model: 8B final synthesis (%d chars) — showing to user",
-                len(text),
-            )
+            return ""  # Don't stream to user — only 80B speaks
         return await super().on_llm_output(text, context)
+
+    # ── Iteration loop override ───────────────────────────────────
+
+    async def _process_messages(
+        self, task: str, context: AnalectRunContext
+    ) -> None:
+        """Override to force 80B synthesis after 8B research completes.
+
+        Replicates AnthropicLLMOrchestrator._process_messages() with one
+        extra branch: when the 8B finishes without tools, force one more
+        iteration with the 80B for synthesis. The 80B sees ALL accumulated
+        context: search results, fetched content, and 8B analysis notes.
+        """
+        # BaseOrchestrator: max_iterations check → get_root_tag() → LLM call
+        await super(AnthropicLLMOrchestrator, self)._process_messages(
+            task, context
+        )
+
+        if self._tool_use_queue:
+            # Standard: tools were called → process them → recurse
+            try:
+                await self._process_tool_use_queue(context)
+            except OrchestratorInterruption as exc:
+                await self._process_interruption(exc, context)
+            finally:
+                self._tool_use_queue.clear()
+            await self._process_messages(task, context)
+
+        elif self._using_fast_model:
+            # 8B finished research (no more tools) → force 80B synthesis
+            logger.info(
+                "Dual-model: 8B research complete — forcing 80B synthesis"
+            )
+            self._last_tool_names = []  # _should_use_fast_model() → False
+            await self._process_messages(task, context)
+
+        else:
+            # 80B finished — normal end, run extension hooks
+            try:
+                await self._on_process_tool_use_queue_complete(context)
+            except OrchestratorInterruption as exc:
+                await self._process_interruption(exc, context)
+                await self._process_messages(task, context)
 
     # ── Tool tracking + quality gate ─────────────────────────────
 
