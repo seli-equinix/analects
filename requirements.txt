@@ -33,3 +33,10 @@ opentelemetry-sdk>=1.25.0
 opentelemetry-exporter-otlp-proto-grpc>=1.25.0
 openinference-semantic-conventions>=0.1.0
 openinference-instrumentation-openai>=0.1.0
+# Common packages for coding tasks (model writes and tests code in /workspace)
+flask>=3.0.0
+pandas>=2.0.0
+pytest>=8.0.0
+jinja2>=3.1.0
+email-validator>=2.0.0
+black>=24.0.0

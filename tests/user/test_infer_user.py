@@ -10,7 +10,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestInferUser:

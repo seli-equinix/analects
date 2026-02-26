@@ -11,7 +11,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.websearch, pytest.mark.timeout(600)]
+pytestmark = [pytest.mark.websearch]
 
 
 def _assert_tools_used(result, min_iterations=1):

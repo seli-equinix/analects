@@ -9,7 +9,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestUserPreference:
@@ -36,7 +36,6 @@ class TestUserPreference:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_preference_recalled_next_session(self, cca, trace_test, judge_model):
         """Preferences should persist and be available in the next session."""
         name = f"PrefRecall_{uuid.uuid4().hex[:6]}"

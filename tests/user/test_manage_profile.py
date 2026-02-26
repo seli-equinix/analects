@@ -10,13 +10,12 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestManageProfileView:
     """manage_user_profile action=view — full profile display."""
 
-    @pytest.mark.timeout(600)
     def test_view_profile(self, cca, trace_test, judge_model):
         """Agent should show profile data when asked."""
         name = f"ViewUser_{uuid.uuid4().hex[:6]}"
@@ -133,7 +132,6 @@ class TestManageProfileSkillVerify:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_remove_skill(self, cca, trace_test, judge_model):
         """Asking to remove a skill should actually remove it from the profile."""
         name = f"RmSkill_{uuid.uuid4().hex[:6]}"
@@ -207,7 +205,6 @@ class TestManageProfileAliasVerify:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_remove_alias(self, cca, trace_test, judge_model):
         """Asking to remove an alias should actually remove it."""
         name = f"RmAlias_{uuid.uuid4().hex[:6]}"
@@ -252,7 +249,6 @@ class TestManageProfileAliasVerify:
 class TestManageProfileRemove:
     """Tests for removing facts and preferences from user profiles."""
 
-    @pytest.mark.timeout(900)
     def test_remove_fact(self, cca, trace_test, judge_model):
         """After asking to forget a fact, CCA should no longer recall it."""
         name = f"RmFact_{uuid.uuid4().hex[:6]}"
@@ -298,7 +294,6 @@ class TestManageProfileRemove:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_remove_preference(self, cca, trace_test, judge_model):
         """Removing a preference should be acknowledged."""
         name = f"RmPref_{uuid.uuid4().hex[:6]}"
@@ -333,7 +328,6 @@ class TestManageProfileRemove:
 class TestManageProfileViewAndDelete:
     """View profile data and full delete lifecycle."""
 
-    @pytest.mark.timeout(600)
     def test_view_profile_shows_data(self, cca, trace_test, judge_model):
         """Asking for profile should show previously stored information."""
         name = f"ViewData_{uuid.uuid4().hex[:6]}"
@@ -368,7 +362,6 @@ class TestManageProfileViewAndDelete:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_delete_and_verify_gone(self, cca, trace_test, judge_model):
         """After deletion, user should not exist via REST API."""
         name = f"DelGone_{uuid.uuid4().hex[:6]}"

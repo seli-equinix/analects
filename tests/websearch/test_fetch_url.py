@@ -10,7 +10,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.websearch, pytest.mark.timeout(600)]
+pytestmark = [pytest.mark.websearch]
 
 
 def _assert_tools_used(result, min_iterations=1):
@@ -155,7 +155,6 @@ class TestFetchUrlChained:
     """Search then fetch — multi-step real-world usage."""
 
     @pytest.mark.slow
-    @pytest.mark.timeout(540)
     def test_search_then_read(self, cca, trace_test, judge_model):
         """Ask about something that requires searching then reading a page."""
         session_id = f"test-chain-{uuid.uuid4().hex[:8]}"

@@ -10,7 +10,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestGetContext:
@@ -69,7 +69,6 @@ class TestGetContext:
         assert not result.user_identified, \
             "Anonymous session should not be identified"
 
-    @pytest.mark.timeout(600)
     def test_context_shows_stored_facts(self, cca, trace_test, judge_model):
         """After storing facts, asking about them should surface the info."""
         name = f"CtxFacts_{uuid.uuid4().hex[:6]}"
@@ -104,7 +103,6 @@ class TestGetContext:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_context_enriches_responses(self, cca, trace_test, judge_model):
         """CCA should use stored context to give more relevant answers."""
         name = f"CtxEnrich_{uuid.uuid4().hex[:6]}"

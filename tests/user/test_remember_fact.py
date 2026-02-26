@@ -10,7 +10,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestRememberFact:
@@ -59,7 +59,6 @@ class TestRememberFact:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_fact_recalled_in_conversation(self, cca, trace_test, judge_model):
         """CCA should use stored facts when asked about a user."""
         name = f"Recall_{uuid.uuid4().hex[:6]}"
@@ -96,7 +95,6 @@ class TestRememberFact:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(900)
     def test_fact_overwrite(self, cca, trace_test, judge_model):
         """When a user changes jobs, CCA should update the fact."""
         name = f"Overwrite_{uuid.uuid4().hex[:6]}"

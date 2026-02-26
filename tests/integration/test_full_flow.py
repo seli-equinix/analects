@@ -13,7 +13,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.integration, pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.integration, pytest.mark.user]
 
 
 class TestRememberAndRecall:
@@ -60,7 +60,6 @@ class TestRememberAndRecall:
 class TestFullUserLifecycle:
     """Full CRUD lifecycle: create → verify via API → delete via API."""
 
-    @pytest.mark.timeout(360)
     def test_full_lifecycle(self, cca, trace_test, judge_model):
         """Complete user profile lifecycle."""
         name = f"Lifecycle_{uuid.uuid4().hex[:6]}"

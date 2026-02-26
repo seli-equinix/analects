@@ -27,7 +27,9 @@ markers = [
     "integration: Multi-tool end-to-end integration tests",
     "slow: Tests that take more than 60 seconds",
 ]
-timeout = 600
+# No fixed timeout — streaming idle timeout (120s silence) handles hangs.
+# pytest-timeout would kill tests that are actively working (long tool loops).
+timeout = 0
 asyncio_mode = "auto"
 # Enforce sequential execution — disable parallel plugins that could
 # overwhelm the CCA server with concurrent LLM requests.

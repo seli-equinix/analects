@@ -14,7 +14,7 @@ import pytest
 
 from tests.evaluators import evaluate_response
 
-pytestmark = [pytest.mark.user, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.user]
 
 
 class TestIdentifyUser:
@@ -90,7 +90,6 @@ class TestIdentifyUser:
 
         cca.cleanup_test_user(name)
 
-    @pytest.mark.timeout(600)
     def test_no_duplicate_on_return(self, cca, trace_test, judge_model):
         """Coming back in a new session shouldn't create a duplicate profile."""
         name = f"NoDup_{uuid.uuid4().hex[:6]}"
