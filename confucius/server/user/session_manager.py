@@ -872,7 +872,7 @@ class UserSessionManager:
                         "extracted_name": extracted_name,
                         "message": f"Welcome back, {existing_user.display_name}!",
                     }
-                else:
+                elif score >= 0.30:
                     # Medium confidence - caller should ask for confirmation
                     session.context["potential_user_id"] = existing_user.user_id
                     session.context["potential_user_confidence"] = score
@@ -887,7 +887,19 @@ class UserSessionManager:
                         "potential_user": existing_user.display_name,
                         "extracted_name": extracted_name,
                     }
-            else:
+                else:
+                    # Score too low — semantic search returned a false
+                    # positive (e.g. "InferKnown_abc" vs "InferKnown_xyz").
+                    # Treat as new user.
+                    logger.info(
+                        "Smart ID: Semantic match '%s' rejected "
+                        "(name score: %.2f < 0.30) — treating as new user",
+                        existing_user.display_name,
+                        score,
+                    )
+                    existing_user = None  # fall through to new-user branch
+
+            if not existing_user:
                 # New user detected - caller should ask if they want to be remembered
                 logger.info(
                     "Smart ID: New user detected - '%s'", extracted_name
@@ -1027,7 +1039,7 @@ class UserSessionManager:
                     "id_source": "router",
                     "message": f"Welcome back, {existing_user.display_name}!",
                 }
-            else:
+            elif score >= 0.30:
                 # Medium confidence — store context and let caller decide
                 session.context["potential_user_id"] = existing_user.user_id
                 session.context["potential_user_confidence"] = score
@@ -1043,7 +1055,17 @@ class UserSessionManager:
                     "extracted_name": name,
                     "id_source": "router",
                 }
-        else:
+            else:
+                # Score too low — false semantic match, treat as new user
+                logger.info(
+                    "Router ID: Semantic match '%s' rejected "
+                    "(name score: %.2f < 0.30) — treating as new user",
+                    existing_user.display_name,
+                    score,
+                )
+                existing_user = None  # fall through to new-user branch
+
+        if not existing_user:
             # New user — auto-create (same as app.py auto-create flow)
             logger.info("Router ID: new user detected — '%s'", name)
             create_result = await self.identify_user(
@@ -1289,12 +1311,28 @@ class UserSessionManager:
                             score_threshold=0.85,
                         ).points
                         if results:
-                            logger.info(
-                                "Semantic match found: %s (score: %.3f)",
-                                results[0].payload.get("display_name"),
-                                results[0].score,
+                            candidate = UserProfile.from_dict(
+                                results[0].payload
                             )
-                            return UserProfile.from_dict(results[0].payload)
+                            name_score = self._calculate_name_match_score(
+                                name,
+                                candidate.display_name,
+                                candidate.aliases,
+                            )
+                            logger.info(
+                                "Semantic match found: %s (embed: %.3f, "
+                                "name: %.2f)",
+                                candidate.display_name,
+                                results[0].score,
+                                name_score,
+                            )
+                            if name_score >= 0.30:
+                                return candidate
+                            logger.info(
+                                "Semantic match rejected — name score "
+                                "%.2f < 0.30 (different user)",
+                                name_score,
+                            )
 
                 logger.info("No matching user found for: %s", name)
             except Exception as e:
