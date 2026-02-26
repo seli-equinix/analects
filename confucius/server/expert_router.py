@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -401,6 +402,14 @@ Routing rules:
 - Simple factual questions, concept explanations → answer_directly
 - Ambiguous requests where you can't determine intent → request_clarification
 
+CRITICAL — answer_directly restrictions:
+- NEVER use answer_directly for requests to write, create, build, implement, or generate code.
+- NEVER use answer_directly for requests that say "write a function", "write a script", \
+"create a class", "implement X", "build a parser", "generate code", or similar.
+- These are ALWAYS coding tasks → route_to_coder, even if they seem simple.
+- answer_directly is ONLY for pure knowledge questions with no code output \
+(e.g., "What is the capital of France?", "Explain what a mutex is").
+
 Disambiguation:
 - Coder vs infrastructure: Docker/containers/services/nodes → infrastructure; \
 files/functions/classes/tests/bugs → coder.
@@ -627,6 +636,9 @@ async def classify_request(
         if decision.greeting_detected:
             span.set_attribute("cca.router.greeting", True)
 
+        # Post-classification guard: coding requests must NEVER be "direct"
+        decision = _guard_coding_not_direct(decision, user_message)
+
         user_info = f", user='{decision.detected_user_name}'" if decision.detected_user_name else ""
         logger.info(
             f"Route: {decision.expert.value} ({elapsed_ms:.0f}ms) "
@@ -634,6 +646,52 @@ async def classify_request(
         )
 
         return decision
+
+
+# Patterns that indicate a coding task — NEVER answer directly
+_CODING_PATTERNS = re.compile(
+    r"\b("
+    r"write\s+(a\s+|me\s+|the\s+)?(function|script|class|module|program|code|parser|test|method|decorator|handler|middleware|endpoint)"
+    r"|create\s+(a\s+|me\s+|the\s+)?(function|script|class|module|program|file|parser|test|method)"
+    r"|implement\s+(a\s+|the\s+)?"
+    r"|build\s+(a\s+|me\s+|the\s+)?(function|script|class|module|parser|tool|api|server|client)"
+    r"|generate\s+(a\s+|me\s+|the\s+)?(function|script|class|code)"
+    r"|fix\s+(the\s+|this\s+|my\s+)?(bug|error|issue|code|function|test)"
+    r"|refactor\s+"
+    r"|debug\s+"
+    r"|add\s+(a\s+|the\s+)?(function|method|endpoint|route|test|feature)"
+    r"|make\s+(a\s+|me\s+)?(function|script|program)"
+    r"|help\s+me\s+write"
+    r"|write\s+a\s+python"
+    r"|one-liner\s+to"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _guard_coding_not_direct(
+    decision: RouteDecision, user_message: str
+) -> RouteDecision:
+    """Override direct→coder if the message contains coding task patterns.
+
+    The router LLM sometimes misclassifies coding requests as direct
+    answers. This guard catches those cases deterministically.
+    """
+    if decision.expert != ExpertType.DIRECT:
+        return decision
+
+    if _CODING_PATTERNS.search(user_message):
+        logger.warning(
+            "Router guard: overriding direct→coder for coding request: %s",
+            user_message[:80],
+        )
+        decision.expert = ExpertType.CODER
+        decision.direct_answer = ""
+        if decision.estimated_steps < 5:
+            decision.estimated_steps = 5
+        return decision
+
+    return decision
 
 
 def _parse_tool_call(
