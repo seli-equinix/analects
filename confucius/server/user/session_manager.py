@@ -404,6 +404,8 @@ class UserSessionManager:
         r"([A-Za-z][A-Za-z0-9_-]{1,20})\s+here\s*,?\s*(?:but\s+)?(?:you\s+)?(?:might|may|could)?\s*(?:also\s+)?know\s+me\s+as\s+([A-Za-z][A-Za-z0-9_-]{1,20})",
         # 11. "<name1> / <name2> - same person"
         r"([A-Za-z][A-Za-z0-9_-]{1,20})\s*/\s*([A-Za-z][A-Za-z0-9_-]{1,20})\s*[-:=]\s*same\s+person",
+        # 12. "I'm <name1>, but [my] friends call me <name2>"
+        r"(?:i'?m|i am|my\s+name\s+is)\s+([A-Za-z][A-Za-z0-9_-]{1,20})\s*,?\s*(?:but\s+)?(?:my\s+)?(?:friends|everyone|people|they)\s+call\s+me\s+([A-Za-z][A-Za-z0-9_-]{1,20})",
     ]
 
     # ------------------------------------------------------------------
