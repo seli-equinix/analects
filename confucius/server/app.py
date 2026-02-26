@@ -56,6 +56,7 @@ from .models import (
     ChatCompletionResponse,
     HealthResponse,
     ModelInfo,
+    build_chunk,
     build_completion_response,
     generate_completion_id,
 )
@@ -515,8 +516,6 @@ async def _handle_chat_completions(
 
             if request.stream:
                 # Streaming: wrap direct answer as SSE events
-                from .models import build_chunk, generate_completion_id
-
                 completion_id = generate_completion_id()
 
                 async def direct_sse():
