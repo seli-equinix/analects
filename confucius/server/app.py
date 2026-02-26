@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -494,7 +495,13 @@ async def _handle_chat_completions(
 
     # 7b. Handle DIRECT and CLARIFY routes (no agent loop needed)
     if route:
+        direct_content = None
         if route.is_direct_answer and route.direct_answer:
+            direct_content = route.direct_answer
+        elif route.is_clarification and route.clarification_question:
+            direct_content = route.clarification_question
+
+        if direct_content:
             execution_time = (time.time() - start_time) * 1000
             from .models import ContextMetadata
 
@@ -504,29 +511,43 @@ async def _handle_chat_completions(
                 execution_time_ms=execution_time,
                 route=route.expert.value,
             )
-            resp = build_completion_response(
-                content=route.direct_answer,
-                model=request.model or SERVED_MODEL_NAME,
-                metadata=metadata,
-            )
-            return resp
+            model_name = request.model or SERVED_MODEL_NAME
 
-        if route.is_clarification and route.clarification_question:
-            execution_time = (time.time() - start_time) * 1000
-            from .models import ContextMetadata
+            if request.stream:
+                # Streaming: wrap direct answer as SSE events
+                from .models import build_chunk, generate_completion_id
 
-            metadata = ContextMetadata(
-                user_identified=session.identified,
-                user_name=user.display_name if user else None,
-                execution_time_ms=execution_time,
-                route=route.expert.value,
-            )
-            resp = build_completion_response(
-                content=route.clarification_question,
-                model=request.model or SERVED_MODEL_NAME,
-                metadata=metadata,
-            )
-            return resp
+                completion_id = generate_completion_id()
+
+                async def direct_sse():
+                    # Role chunk
+                    role_chunk = build_chunk(completion_id=completion_id, model=model_name, role="assistant")
+                    yield f"data: {role_chunk.model_dump_json()}\n\n"
+                    # Content chunk
+                    content_chunk = build_chunk(completion_id=completion_id, model=model_name, content=direct_content)
+                    yield f"data: {content_chunk.model_dump_json()}\n\n"
+                    # Finish chunk
+                    finish_chunk = build_chunk(completion_id=completion_id, model=model_name, finish_reason="stop")
+                    yield f"data: {finish_chunk.model_dump_json()}\n\n"
+                    # Context metadata
+                    yield f"data: {json.dumps({'context_metadata': metadata.model_dump()})}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(
+                    direct_sse(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+            else:
+                return build_completion_response(
+                    content=direct_content,
+                    model=model_name,
+                    metadata=metadata,
+                )
 
     # 8. Select entry based on routing decision
     #    HttpRoutedEntry dynamically builds extensions from the route's tool groups.
