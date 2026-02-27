@@ -190,13 +190,18 @@ class GraphToolsExtension(ToolUseExtension):
     # Tool handlers
     # ------------------------------------------------------------------
 
+    _cached_graph: Any = None
+
     def _get_graph(self) -> Any:
-        """Get MemgraphClient from BackendClients."""
+        """Get MemgraphClient from BackendClients (cached)."""
+        if self._cached_graph is not None:
+            return self._cached_graph
         memgraph = self._backend_clients.memgraph
         if not memgraph:
             return None
         from .memgraph_client import MemgraphClient
-        return MemgraphClient(memgraph)
+        self._cached_graph = MemgraphClient(memgraph)
+        return self._cached_graph
 
     async def _handle_query_call_graph(self, inp: dict[str, Any]) -> str:
         """Query callers, callees, or call chains."""

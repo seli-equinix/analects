@@ -46,7 +46,7 @@ COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.
 RUN python3 /tmp/build_languages.py && rm /tmp/build_languages.py
 
 # Install CCA package
-COPY pyproject.toml setup.py ./
+COPY pyproject.toml ./
 COPY confucius/ confucius/
 COPY scripts/ scripts/
 RUN pip install --no-cache-dir .

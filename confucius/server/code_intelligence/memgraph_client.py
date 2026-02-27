@@ -81,6 +81,10 @@ class MemgraphClient:
 
     All methods accept the async driver as a parameter — no internal state
     beyond the driver reference.  This keeps it testable and avoids singletons.
+
+    SECURITY: All Cypher queries use parameterized values ($name, $project, etc.)
+    via the neo4j driver, which handles escaping.  Labels and relationship types
+    are hardcoded string literals, never user-supplied.  No injection risk.
     """
 
     def __init__(self, driver: Any) -> None:

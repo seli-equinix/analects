@@ -37,6 +37,11 @@ services:
       # Phoenix observability (traces → Phoenix UI)
       - PHOENIX_COLLECTOR_ENDPOINT=http://192.168.4.204:4317
       - PHOENIX_PROJECT_NAME=cca-http
+    # SECURITY: host networking is intentional — CCA's infra expert needs
+    # direct access to Swarm nodes, Redis, Qdrant, Memgraph on the LAN.
+    # Combined with docker.io and workspace :rw, the container has near-host
+    # access.  Mitigated by: non-root user (uid 1000), resource limits,
+    # API key auth on destructive endpoints, LAN-only deployment.
     network_mode: host
     entrypoint: ["confucius", "--port", "8500"]
     volumes:

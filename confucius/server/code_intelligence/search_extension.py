@@ -25,6 +25,10 @@ from ...orchestrator.extensions.tool_use import ToolUseExtension
 
 logger = logging.getLogger(__name__)
 
+# Truncation limits for content returned to LLM (save context window)
+CONTENT_TRUNCATION_PRIMARY = 3000   # Main search results
+CONTENT_TRUNCATION_RELATED = 2000   # Related/enrichment results
+
 
 class CodeSearchExtension(ToolUseExtension):
     """CCA extension providing code search and workspace indexing tools."""
@@ -256,7 +260,7 @@ class CodeSearchExtension(ToolUseExtension):
                     "type": payload.get("type", ""),
                     "signature": payload.get("signature", ""),
                     "score": round(pt.score, 3),
-                    "content": payload.get("_content", "")[:3000],
+                    "content": payload.get("_content", "")[:CONTENT_TRUNCATION_PRIMARY],
                 }
                 # Add AST metadata if present
                 for field in ("line_start", "line_end", "is_async", "class_name"):
@@ -321,7 +325,7 @@ class CodeSearchExtension(ToolUseExtension):
                             "source": "ephemeral",
                             "score": round(min(1.0, pt.score + 0.15), 3),
                             "name": payload.get("doc_name", ""),
-                            "content": payload.get("_content", "")[:2000],
+                            "content": payload.get("_content", "")[:CONTENT_TRUNCATION_RELATED],
                             "file_path": payload.get("file_path", ""),
                         })
                     sources_searched.append("ephemeral")
@@ -344,7 +348,7 @@ class CodeSearchExtension(ToolUseExtension):
                             "source": "user",
                             "score": round(min(1.0, pt.score + 0.08), 3),
                             "name": payload.get("doc_name", payload.get("name", "")),
-                            "content": payload.get("_content", "")[:2000],
+                            "content": payload.get("_content", "")[:CONTENT_TRUNCATION_RELATED],
                             "file_path": payload.get("file_path", ""),
                         })
                     sources_searched.append("user")
@@ -381,7 +385,7 @@ class CodeSearchExtension(ToolUseExtension):
                     "project": payload.get("project", ""),
                     "type": payload.get("type", ""),
                     "signature": payload.get("signature", ""),
-                    "content": payload.get("_content", "")[:2000],
+                    "content": payload.get("_content", "")[:CONTENT_TRUNCATION_RELATED],
                 })
             sources_searched.append("project")
 
@@ -437,6 +441,8 @@ class CodeSearchExtension(ToolUseExtension):
             pass
         return ["/workspace"]
 
+    _cached_graph: Any = None
+
     async def _enrich_with_graph(
         self,
         results: list[dict],
@@ -448,8 +454,10 @@ class CodeSearchExtension(ToolUseExtension):
             return
 
         try:
-            from .memgraph_client import MemgraphClient
-            graph = MemgraphClient(memgraph)
+            if self._cached_graph is None:
+                from .memgraph_client import MemgraphClient
+                self._cached_graph = MemgraphClient(memgraph)
+            graph = self._cached_graph
         except Exception:
             return
 

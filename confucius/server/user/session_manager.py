@@ -2297,15 +2297,14 @@ class UserSessionManager:
                 "preferences": existing.preferences,
             }
 
-        # Create new profile
+        # Create new profile (link_session_to_user handles save_user_profile)
         profile = UserProfile(
             user_id=str(uuid.uuid4()),
             display_name=name.title(),
             aliases=[name.lower()],
             known_clients=[client_type] if client_type else [],
-            session_count=1,
+            session_count=0,  # link_session_to_user increments this
         )
-        await self.save_user_profile(profile)
         await self.link_session_to_user(session, profile, client_type)
         return {
             "status": "new_user",

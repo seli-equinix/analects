@@ -128,8 +128,6 @@ class TreeSitterParser:
                 return self._extract_bash_functions(tree, code, file_path)
             elif language == "powershell":
                 return self._extract_powershell_functions(tree, code, file_path)
-            elif language in ["javascript", "typescript"]:
-                return self._extract_javascript_functions(tree, code, file_path)
             else:
                 logger.warning(f"Extraction not implemented for {language}")
                 return []
@@ -1210,134 +1208,8 @@ class TreeSitterParser:
 
         return sorted(list(modules))
 
-    def _extract_javascript_functions(
-        self,
-        tree,
-        code: str,
-        file_path: str
-    ) -> List[Dict]:
-        """
-        Extract JavaScript/TypeScript function definitions
-
-        Captures:
-        - Function declarations
-        - Arrow functions
-        - Method definitions
-        - Async functions
-        """
-        functions = []
-        code_lines = code.split("\n")
-
-        # Query for function declarations
-        function_query = self.languages.get("javascript", self.languages.get("typescript")).query("""
-            (function_declaration
-                name: (identifier) @func_name
-                parameters: (formal_parameters) @params
-                body: (statement_block) @body
-            ) @function
-        """)
-
-        captures = function_query.captures(tree.root_node)
-        for node, capture_name in captures:
-            if capture_name == "function":
-                func_data = self._parse_javascript_function(node, code_lines, file_path)
-                if func_data:
-                    functions.append(func_data)
-
-        return functions
-
-    def _parse_javascript_function(
-        self,
-        node: Node,
-        code_lines: List[str],
-        file_path: str
-    ) -> Optional[Dict]:
-        """Parse a single JavaScript function node"""
-        try:
-            # Get function name
-            name_node = node.child_by_field_name("name")
-            func_name = name_node.text.decode("utf8") if name_node else "anonymous"
-
-            # Get parameters
-            params_node = node.child_by_field_name("parameters")
-            parameters = self._parse_javascript_parameters(params_node) if params_node else []
-
-            # Get body
-            body_node = node.child_by_field_name("body")
-            body_text = body_node.text.decode("utf8") if body_node else ""
-
-            # Build signature
-            params_str = ", ".join([p["name"] for p in parameters])
-            signature = f"function {func_name}({params_str}) {{"
-
-            # Check for async
-            is_async = False
-            for child in node.children:
-                if child.type == "async":
-                    is_async = True
-                    signature = "async " + signature
-                    break
-
-            # Calculate LOC
-            line_start = node.start_point[0]
-            line_end = node.end_point[0]
-            loc = line_end - line_start + 1
-
-            # Check if generator
-            is_generator = "function*" in node.text.decode("utf8")
-
-            return {
-                "type": "function",
-                "name": func_name,
-                "signature": signature,
-                "parameters": parameters,
-                "return_type": None,  # TypeScript would have this
-                "decorators": [],
-                "is_async": is_async,
-                "is_generator": is_generator,
-                "docstring": None,  # Could extract JSDoc comments
-                "body": body_text,
-                "line_start": line_start + 1,
-                "line_end": line_end + 1,
-                "calls": [],  # Could extract
-                "imports": [],
-                "loc": loc,
-            }
-
-        except Exception as e:
-            logger.error(f"Error parsing JavaScript function in {file_path}: {e}")
-            return None
-
-    def _parse_javascript_parameters(self, params_node: Node) -> List[Dict]:
-        """Parse JavaScript function parameters"""
-        parameters = []
-
-        for child in params_node.children:
-            if child.type == "identifier":
-                parameters.append({
-                    "name": child.text.decode("utf8"),
-                    "type": None,
-                    "default": None
-                })
-            elif child.type == "assignment_pattern":
-                # Parameter with default value
-                name = None
-                default = None
-                for subchild in child.children:
-                    if subchild.type == "identifier":
-                        name = subchild.text.decode("utf8")
-                    elif subchild.type in ["number", "string", "true", "false"]:
-                        default = subchild.text.decode("utf8")
-
-                if name:
-                    parameters.append({
-                        "name": name,
-                        "type": None,
-                        "default": default
-                    })
-
-        return parameters
-
+    # NOTE: JS/TS extraction removed — not in SUPPORTED_LANGUAGES, never compiled.
+    # Re-add when JS/TS tree-sitter grammars are built.
 
 # Singleton instance getter for convenience
 def get_parser() -> TreeSitterParser:

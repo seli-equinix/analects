@@ -109,6 +109,15 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
 
     logger.info("CCA HTTP server starting up...")
 
+    # Warn if OPENAI_API_KEY is a dummy placeholder
+    _oai_key = os.getenv("OPENAI_API_KEY", "")
+    if _oai_key in ("dummy", "sk-dummy", ""):
+        logger.warning(
+            "OPENAI_API_KEY is '%s' — OpenAI-routed models will fail. "
+            "Set a real key or configure local providers in config.toml.",
+            _oai_key or "(empty)",
+        )
+
     # Initialise Phoenix tracing (exports spans to Phoenix UI)
     init_tracing()
 
