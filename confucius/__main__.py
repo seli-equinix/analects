@@ -29,7 +29,13 @@ def main() -> None:
 
     from confucius.server.app import app
 
-    uvicorn.run(app, host=args.host, port=args.port, workers=args.workers)
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        workers=args.workers,
+        log_config=None,  # Use root logger config (structured format)
+    )
 
 
 if __name__ == "__main__":
