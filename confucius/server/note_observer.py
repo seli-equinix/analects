@@ -23,6 +23,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from opentelemetry.trace import StatusCode
+
 from ..core.tracing import (
     get_tracer,
     OPENINFERENCE_SPAN_KIND,
@@ -296,6 +298,7 @@ class NoteObserver:
 
                 span.set_attribute("cca.note.status", "success")
                 span.set_attribute("cca.note.notes_stored", len(notes))
+                span.set_status(StatusCode.OK)
                 logger.info(
                     "NoteObserver: stored %d notes for session %s (user=%s)",
                     len(notes),
@@ -306,6 +309,7 @@ class NoteObserver:
             except Exception as e:
                 span.set_attribute("cca.note.status", "error")
                 span.set_attribute("cca.note.error", str(e)[:200])
+                span.set_status(StatusCode.ERROR, str(e)[:200])
                 logger.error("NoteObserver.process() failed: %s", e, exc_info=True)
 
     # ------------------------------------------------------------------

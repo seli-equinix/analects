@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..core.config import CCAConfigError, get_llm_params, get_router_config
 from opentelemetry.propagate import extract as otel_extract
+from opentelemetry.trace import StatusCode
 
 from ..core.tracing import (
     init_tracing, shutdown_tracing, get_tracer,
@@ -368,10 +369,16 @@ async def chat_completions(
     with tracer.start_as_current_span("cca.request", **ctx_kwargs) as request_span:
         request_span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
 
-        return await _handle_chat_completions(
-            request, x_session_id, http_request,
-            start_time, tracer, request_span,
-        )
+        try:
+            result = await _handle_chat_completions(
+                request, x_session_id, http_request,
+                start_time, tracer, request_span,
+            )
+            request_span.set_status(StatusCode.OK)
+            return result
+        except Exception as e:
+            request_span.set_status(StatusCode.ERROR, str(e)[:500])
+            raise
 
 
 async def _handle_chat_completions(
@@ -657,6 +664,7 @@ async def _handle_chat_completions(
                             "cca.tool_iterations",
                             getattr(entry, "_tool_iterations", 0),
                         )
+                        span.set_status(StatusCode.OK)
 
                         # Fire note observer in background with span context
                         if note_observer:
@@ -669,6 +677,7 @@ async def _handle_chat_completions(
                     except Exception as e:
                         span.set_attribute("cca.status", "error")
                         span.set_attribute("cca.error", str(e)[:500])
+                        span.set_status(StatusCode.ERROR, str(e)[:500])
                         raise
                     finally:
                         await io.signal_done()
@@ -717,6 +726,7 @@ async def _handle_chat_completions(
                 except Exception as e:
                     span.set_attribute("cca.status", "error")
                     span.set_attribute("cca.error", str(e)[:500])
+                    span.set_status(StatusCode.ERROR, str(e)[:500])
                     logger.error(f"Agent execution failed: {e}")
                     return JSONResponse(
                         status_code=500,
@@ -727,6 +737,8 @@ async def _handle_chat_completions(
                             }
                         },
                     )
+
+                span.set_status(StatusCode.OK)
 
                 # Fire note observer in background with span context
                 if note_observer:

@@ -34,6 +34,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from ..core.config import RouterConfig
+from opentelemetry.trace import StatusCode
+
 from ..core.tracing import (
     get_tracer,
     OPENINFERENCE_SPAN_KIND,
@@ -557,12 +559,14 @@ async def classify_request(
             logger.warning(f"Router classification timed out ({elapsed:.0f}ms), using fallback")
             span.set_attribute("cca.router.status", "timeout")
             span.set_attribute("cca.router.elapsed_ms", elapsed)
+            span.set_status(StatusCode.ERROR, "timeout")
             return _fallback(config, elapsed, "timeout")
         except Exception as e:
             elapsed = (time.monotonic() - start) * 1000
             logger.error(f"Router classification error: {e}")
             span.set_attribute("cca.router.status", "error")
             span.set_attribute("cca.router.error", str(e)[:200])
+            span.set_status(StatusCode.ERROR, str(e)[:200])
             return _fallback(config, elapsed, str(e))
 
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -649,6 +653,8 @@ async def classify_request(
         decision = _guard_search_not_direct(decision, user_message)
         decision = _guard_action_not_direct(decision, user_message)
         decision = _guard_copout_not_direct(decision, user_message)
+
+        span.set_status(StatusCode.OK)
 
         user_info = f", user='{decision.detected_user_name}'" if decision.detected_user_name else ""
         logger.info(

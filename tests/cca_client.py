@@ -1,11 +1,12 @@
-"""OTel-instrumented HTTP client for the CCA Agent-as-a-Model server.
+"""HTTP client for the CCA Agent-as-a-Model server.
 
 Uses SSE streaming with idle timeout instead of fixed total timeouts.
 This means tests won't fail just because a task takes longer than expected
 — they only fail if the server stops sending data entirely.
 
-Every method creates OpenTelemetry spans that are exported to Phoenix,
-giving full visibility into test → HTTP request → response flow.
+Only chat() creates OpenTelemetry spans — diagnostic/helper methods
+(health, list_users, find_user, cleanup) are untraced to keep Phoenix
+traces clean. Each test trace should show: test span → cca.chat → server spans.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from opentelemetry import trace
 from opentelemetry.propagate import inject as otel_inject
+from opentelemetry.trace import StatusCode
 
 # Timeout defaults (seconds)
 TIMEOUT_HEALTH = 10
@@ -76,7 +78,7 @@ class CCAClient:
         idle_timeout: float = TIMEOUT_IDLE,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.tracer = tracer or trace.get_tracer("cca-tests")
+        self.tracer = tracer or trace.get_tracer("cca-http")
         self.idle_timeout = idle_timeout
         self._client = httpx.Client(
             timeout=httpx.Timeout(
@@ -93,21 +95,14 @@ class CCAClient:
     # ==================== Core Methods ====================
 
     def health(self) -> Dict[str, Any]:
-        """GET /health — check server status."""
-        with self.tracer.start_as_current_span("cca.health") as span:
-            span.set_attribute("openinference.span.kind", "CHAIN")
-            try:
-                resp = self._client.get(
-                    f"{self.base_url}/health", timeout=TIMEOUT_HEALTH
-                )
-                data = resp.json()
-                span.set_attribute("cca.status", data.get("status", "unknown"))
-                span.set_attribute("cca.active_sessions", data.get("active_sessions", 0))
-                return data
-            except Exception as e:
-                span.set_attribute("cca.status", "error")
-                span.set_attribute("cca.error", str(e))
-                return {"status": "unreachable", "error": str(e)}
+        """GET /health — check server status. No tracing (runs every test)."""
+        try:
+            resp = self._client.get(
+                f"{self.base_url}/health", timeout=TIMEOUT_HEALTH
+            )
+            return resp.json()
+        except Exception as e:
+            return {"status": "unreachable", "error": str(e)}
 
     def chat(
         self,
@@ -175,6 +170,7 @@ class CCAClient:
                     span.set_attribute("cca.user_identified", True)
                     span.set_attribute("cca.user_name", result.user_name or "")
 
+                span.set_status(StatusCode.OK)
                 return result
 
             except Exception as e:
@@ -182,6 +178,7 @@ class CCAClient:
                 span.set_attribute("cca.status", "error")
                 span.set_attribute("cca.error", str(e))
                 span.set_attribute("cca.duration_ms", elapsed_ms)
+                span.set_status(StatusCode.ERROR, str(e)[:500])
                 raise
 
     def _stream_chat(
@@ -301,107 +298,79 @@ class CCAClient:
     # ==================== Diagnostic Endpoints ====================
 
     def list_users(self) -> Dict[str, Any]:
-        """GET /users — list all known user profiles."""
-        with self.tracer.start_as_current_span("cca.list_users") as span:
-            resp = self._client.get(
-                f"{self.base_url}/users", timeout=TIMEOUT_DIAGNOSTIC
-            )
-            data = resp.json()
-            span.set_attribute("cca.user_count", data.get("count", 0))
-            return data
+        """GET /users — list all known user profiles. No tracing."""
+        resp = self._client.get(
+            f"{self.base_url}/users", timeout=TIMEOUT_DIAGNOSTIC
+        )
+        return resp.json()
 
     def list_sessions(self) -> Dict[str, Any]:
-        """GET /sessions — list active sessions."""
-        with self.tracer.start_as_current_span("cca.list_sessions") as span:
-            resp = self._client.get(
-                f"{self.base_url}/sessions", timeout=TIMEOUT_DIAGNOSTIC
-            )
-            data = resp.json()
-            span.set_attribute("cca.session_count", data.get("count", 0))
-            return data
+        """GET /sessions — list active sessions. No tracing."""
+        resp = self._client.get(
+            f"{self.base_url}/sessions", timeout=TIMEOUT_DIAGNOSTIC
+        )
+        return resp.json()
 
     def get_stats(self) -> Dict[str, Any]:
-        """GET /stats — diagnostic statistics."""
-        with self.tracer.start_as_current_span("cca.get_stats"):
-            resp = self._client.get(
-                f"{self.base_url}/stats", timeout=TIMEOUT_DIAGNOSTIC
-            )
-            return resp.json()
+        """GET /stats — diagnostic statistics. No tracing."""
+        resp = self._client.get(
+            f"{self.base_url}/stats", timeout=TIMEOUT_DIAGNOSTIC
+        )
+        return resp.json()
 
     def list_models(self) -> Dict[str, Any]:
-        """GET /v1/models — list available models."""
-        with self.tracer.start_as_current_span("cca.list_models"):
-            resp = self._client.get(
-                f"{self.base_url}/v1/models", timeout=TIMEOUT_DIAGNOSTIC
-            )
-            return resp.json()
+        """GET /v1/models — list available models. No tracing."""
+        resp = self._client.get(
+            f"{self.base_url}/v1/models", timeout=TIMEOUT_DIAGNOSTIC
+        )
+        return resp.json()
 
     # ==================== Helpers ====================
 
     def find_user_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Search /users for a user by display name (case-insensitive)."""
-        with self.tracer.start_as_current_span("cca.find_user") as span:
-            span.set_attribute("cca.search_name", name)
-            data = self.list_users()
-            for user in data.get("users", []):
-                if user.get("display_name", "").lower() == name.lower():
-                    span.set_attribute("cca.found", True)
-                    return user
-                # Also check aliases
-                aliases = [a.lower() for a in user.get("aliases", [])]
-                if name.lower() in aliases:
-                    span.set_attribute("cca.found", True)
-                    return user
-            span.set_attribute("cca.found", False)
-            return None
+        """Search /users for a user by display name (case-insensitive). No tracing."""
+        data = self.list_users()
+        for user in data.get("users", []):
+            if user.get("display_name", "").lower() == name.lower():
+                return user
+            # Also check aliases
+            aliases = [a.lower() for a in user.get("aliases", [])]
+            if name.lower() in aliases:
+                return user
+        return None
 
     def cleanup_test_user(self, name: str, session_id: Optional[str] = None) -> None:
-        """Delete a test user profile via REST API.
+        """Delete a test user profile via REST API. No tracing.
 
         Uses DELETE /users/{user_id} directly — no LLM round-trip needed.
         Best-effort cleanup — failures are logged but don't raise.
         """
-        with self.tracer.start_as_current_span("cca.cleanup_user") as span:
-            span.set_attribute("cca.cleanup_target", name)
-            try:
-                user = self.find_user_by_name(name)
-                if user is None:
-                    span.set_attribute("cca.cleanup_status", "not_found")
-                    return
-                user_id = user["user_id"]
-                resp = self._client.delete(
-                    f"{self.base_url}/users/{user_id}",
-                    timeout=TIMEOUT_DIAGNOSTIC,
-                )
-                span.set_attribute("cca.cleanup_status", "deleted")
-                span.set_attribute("cca.cleanup_response", resp.text[:200])
-            except Exception as e:
-                span.set_attribute("cca.cleanup_status", f"failed: {e}")
-
-    def list_workspace_files(self) -> Dict[str, Any]:
-        """GET /workspace/files — list files in /workspace."""
-        with self.tracer.start_as_current_span("cca.list_workspace"):
-            resp = self._client.get(
-                f"{self.base_url}/workspace/files", timeout=TIMEOUT_DIAGNOSTIC
-            )
-            return resp.json()
-
-    def clean_workspace_files(self, prefix: str = "") -> Dict[str, Any]:
-        """DELETE /workspace/files — remove files from /workspace.
-
-        Without prefix, deletes ALL files. With prefix, only matching.
-        """
-        with self.tracer.start_as_current_span("cca.clean_workspace") as span:
-            span.set_attribute("cca.cleanup_prefix", prefix)
-            params = {"prefix": prefix} if prefix else {}
-            resp = self._client.request(
-                "DELETE",
-                f"{self.base_url}/workspace/files",
-                params=params,
+        try:
+            user = self.find_user_by_name(name)
+            if user is None:
+                return
+            user_id = user["user_id"]
+            self._client.delete(
+                f"{self.base_url}/users/{user_id}",
                 timeout=TIMEOUT_DIAGNOSTIC,
             )
-            data = resp.json()
-            span.set_attribute(
-                "cca.cleanup_deleted", data.get("deleted_count", 0)
-            )
-            return data
+        except Exception:
+            pass  # Best-effort cleanup
+
+    def list_workspace_files(self) -> Dict[str, Any]:
+        """GET /workspace/files — list files in /workspace. No tracing."""
+        resp = self._client.get(
+            f"{self.base_url}/workspace/files", timeout=TIMEOUT_DIAGNOSTIC
+        )
+        return resp.json()
+
+    def clean_workspace_files(self, prefix: str = "") -> Dict[str, Any]:
+        """DELETE /workspace/files — remove files from /workspace. No tracing."""
+        params = {"prefix": prefix} if prefix else {}
+        resp = self._client.request(
+            "DELETE",
+            f"{self.base_url}/workspace/files",
+            params=params,
+            timeout=TIMEOUT_DIAGNOSTIC,
+        )
+        return resp.json()

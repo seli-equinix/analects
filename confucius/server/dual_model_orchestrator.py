@@ -48,6 +48,8 @@ from ..core.analect import AnalectRunContext
 from ..core.chat_models.bedrock.api.invoke_model import anthropic as ant
 from ..core.llm_manager import LLMParams
 from ..core.memory import CfMessage
+from opentelemetry.trace import StatusCode
+
 from ..core.tracing import get_tracer, OPENINFERENCE_SPAN_KIND, OUTPUT_VALUE
 from ..orchestrator.anthropic import AnthropicLLMOrchestrator
 from ..orchestrator.exceptions import OrchestratorInterruption
@@ -248,12 +250,17 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     ",".join(self._last_tool_names),
                 )
 
-            response = await context.invoke(chat, messages)
-            response = await self.on_llm_response(response, context)
-            result = await self._process_response(response, context)
+            try:
+                response = await context.invoke(chat, messages)
+                response = await self.on_llm_response(response, context)
+                result = await self._process_response(response, context)
 
-            span.set_attribute(OUTPUT_VALUE, str(result)[:500] if result else "")
-            return result
+                span.set_attribute(OUTPUT_VALUE, str(result)[:500] if result else "")
+                span.set_status(StatusCode.OK)
+                return result
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e)[:500])
+                raise
 
     # ── 8B context preservation + stall detection ─────────────────
 

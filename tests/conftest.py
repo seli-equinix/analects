@@ -1,6 +1,6 @@
 """CCA test suite — Phoenix-traced integration tests.
 
-All traces go to a single Phoenix project (cca-tests) so each request
+All traces go to a single Phoenix project (cca-http) so each request
 shows as ONE unified trace with all steps: routing → agent → tool calls.
 Tests are categorized via span attributes, not separate projects.
 
@@ -31,6 +31,7 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace import StatusCode
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from .cca_client import CCAClient, TIMEOUT_DIAGNOSTIC
@@ -142,6 +143,13 @@ def trace_test(request, phoenix_tracer):
             rep = request.node.rep_call
             span.set_attribute("cca.test.passed", rep.passed)
             span.set_attribute("cca.test.outcome", rep.outcome)
+            if rep.passed:
+                span.set_status(StatusCode.OK)
+            else:
+                span.set_status(StatusCode.ERROR, rep.longreprtext[:500] if hasattr(rep, "longreprtext") else "test failed")
+        else:
+            # No rep_call means setup failed or test was skipped
+            span.set_status(StatusCode.ERROR, "no test result available")
 
     # Span is now CLOSED — flush to Phoenix, then post annotations.
     # force_flush() sends via gRPC; Phoenix needs a moment to persist
