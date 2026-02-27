@@ -47,6 +47,12 @@ services:
       - /home/seli/docker-swarm-stacks:/home/seli/docker-swarm-stacks:ro
     working_dir: /workspace
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # CCA dev container (source mounted for live editing, no rebuild needed)
   cca-dev:

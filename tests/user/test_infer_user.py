@@ -21,47 +21,47 @@ class TestInferUser:
         name = f"InferKnown_{uuid.uuid4().hex[:6]}"
         sid1 = f"test-inf1-{uuid.uuid4().hex[:8]}"
         sid2 = f"test-inf2-{uuid.uuid4().hex[:8]}"
+        try:
+            # Session 1: create user with distinctive info
+            cca.chat(
+                f"Hi I'm {name}. I work on the vLLM server. "
+                f"Write a Python one-liner to read a JSON file.",
+                session_id=sid1,
+            )
 
-        # Session 1: create user with distinctive info
-        cca.chat(
-            f"Hi I'm {name}. I work on the vLLM server. "
-            f"Write a Python one-liner to read a JSON file.",
-            session_id=sid1,
-        )
+            # Session 2: return with name + task
+            message = (
+                f"Hey it's {name} again, the vLLM person. "
+                f"Help me write a function to parse YAML."
+            )
+            result = cca.chat(message, session_id=sid2)
 
-        # Session 2: return with name + task
-        message = (
-            f"Hey it's {name} again, the vLLM person. "
-            f"Help me write a function to parse YAML."
-        )
-        result = cca.chat(message, session_id=sid2)
+            evaluate_response(result, message, trace_test, judge_model, "user")
 
-        evaluate_response(result, message, trace_test, judge_model, "user")
+            tool_iters = result.metadata.get("tool_iterations", 0)
+            trace_test.set_attribute("cca.test.response", result.content[:500])
+            trace_test.set_attribute("cca.test.tool_iterations", tool_iters)
+            assert result.content, "Agent returned empty response"
 
-        tool_iters = result.metadata.get("tool_iterations", 0)
-        trace_test.set_attribute("cca.test.response", result.content[:500])
-        trace_test.set_attribute("cca.test.tool_iterations", tool_iters)
-        assert result.content, "Agent returned empty response"
+            # Coding task should have used tools (bash, file edit, etc.)
+            assert tool_iters >= 1, (
+                f"Coding task should trigger tool use but got "
+                f"tool_iterations={tool_iters}. "
+                f"Response: {result.content[:200]}"
+            )
 
-        # Coding task should have used tools (bash, file edit, etc.)
-        assert tool_iters >= 1, (
-            f"Coding task should trigger tool use but got "
-            f"tool_iterations={tool_iters}. "
-            f"Response: {result.content[:200]}"
-        )
+            # Response should not contain raw tool_call XML
+            assert "<tool_call>" not in result.content, (
+                "Response contains raw <tool_call> XML — tools leaked into "
+                f"text instead of being executed. Response: {result.content[:300]}"
+            )
 
-        # Response should not contain raw tool_call XML
-        assert "<tool_call>" not in result.content, (
-            "Response contains raw <tool_call> XML — tools leaked into "
-            f"text instead of being executed. Response: {result.content[:300]}"
-        )
-
-        # User should exist (not duplicated)
-        user = cca.find_user_by_name(name)
-        trace_test.set_attribute("cca.test.user_found", user is not None)
-        assert user is not None, f"User '{name}' not found"
-
-        cca.cleanup_test_user(name)
+            # User should exist (not duplicated)
+            user = cca.find_user_by_name(name)
+            trace_test.set_attribute("cca.test.user_found", user is not None)
+            assert user is not None, f"User '{name}' not found"
+        finally:
+            cca.cleanup_test_user(name)
 
     def test_infer_no_match(self, cca, trace_test, judge_model):
         """Generic message with no user clues should not auto-identify."""

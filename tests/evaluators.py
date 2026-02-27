@@ -396,4 +396,21 @@ def evaluate_response(
                 explanation=ev.get("explanation", ""),
             )
 
+    # --- Gate on code evaluator failures ---
+    # CODE evaluators are deterministic and catch real problems.
+    # LLM judge results remain advisory (posted to Phoenix but don't gate).
+    for ev in evals.values():
+        if ev["annotator_kind"] != "CODE" or ev["score"] != SCORE_FAIL:
+            continue
+        # Latency is informational — slow != wrong
+        if ev["name"] == "latency":
+            continue
+        # Code presence is expected for user/integration, not websearch
+        if ev["name"] == "code_present" and category == "websearch":
+            continue
+        raise AssertionError(
+            f"Code evaluator '{ev['name']}' FAILED: "
+            f"label={ev['label']}, explanation={ev.get('explanation', '')}"
+        )
+
     return evals

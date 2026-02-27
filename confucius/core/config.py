@@ -113,7 +113,6 @@ class ProviderProfile(BaseModel):
 
     def to_llm_params(self) -> LLMParams:
         """Convert to CCA's internal LLMParams format."""
-        from .chat_models.bedrock.api.invoke_model import anthropic as ant
         from .llm_manager.llm_params import LLMParams as _LLMParams
 
         additional_kwargs: dict[str, Any] = {}
@@ -123,12 +122,18 @@ class ProviderProfile(BaseModel):
         if self.use_responses_api:
             additional_kwargs["use_responses_api"] = True
 
-        # Convert thinking_budget to Anthropic thinking format (for cloud providers)
+        # Convert thinking_budget — format depends on provider
         if self.thinking_budget and self.thinking_budget > 0:
-            additional_kwargs["thinking"] = ant.Thinking(
-                type=ant.ThinkingType.ENABLED,
-                budget_tokens=self.thinking_budget,
-            ).dict()
+            if self.provider in ("azure", "bedrock", "anthropic"):
+                # Anthropic-compatible providers use the Thinking object
+                from .chat_models.bedrock.api.invoke_model import anthropic as ant
+                additional_kwargs["thinking"] = ant.Thinking(
+                    type=ant.ThinkingType.ENABLED,
+                    budget_tokens=self.thinking_budget,
+                ).dict()
+            else:
+                # OpenAI-compatible providers (vLLM, etc.)
+                additional_kwargs["thinking_budget"] = self.thinking_budget
 
         return _LLMParams(
             model=self.model,

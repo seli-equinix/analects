@@ -25,36 +25,37 @@ class TestRememberAndRecall:
         company = f"RecallCorp_{uuid.uuid4().hex[:4]}"
         sid1 = f"test-rec1-{uuid.uuid4().hex[:8]}"
         sid2 = f"test-rec2-{uuid.uuid4().hex[:8]}"
+        try:
+            # Session 1: Identify + store fact via coding task
+            cca.chat(
+                f"Hello I'm {name}. I work at {company}. "
+                f"Write a Python function to reverse a string.",
+                session_id=sid1,
+            )
 
-        # Session 1: Identify + store fact via coding task
-        cca.chat(
-            f"Hello I'm {name}. I work at {company}. "
-            f"Write a Python function to reverse a string.",
-            session_id=sid1,
-        )
+            # Session 2: New session, ask to recall
+            message = (
+                f"Hi, I'm {name}. Where do I work? "
+                f"Also write a one-liner to check if a string is empty."
+            )
+            result = cca.chat(message, session_id=sid2)
 
-        # Session 2: New session, ask to recall
-        message = (
-            f"Hi, I'm {name}. Where do I work? "
-            f"Also write a one-liner to check if a string is empty."
-        )
-        result = cca.chat(message, session_id=sid2)
+            evaluate_response(
+                result, message, trace_test, judge_model, "integration",
+            )
 
-        evaluate_response(result, message, trace_test, judge_model, "integration")
+            trace_test.set_attribute("cca.test.response", result.content[:500])
+            assert result.content, "Session 2 returned empty"
 
-        trace_test.set_attribute("cca.test.response", result.content[:500])
-        assert result.content, "Session 2 returned empty"
-
-        content_lower = result.content.lower()
-        recalled = any(w in content_lower for w in [
-            company.lower(), "employer", "work", "company",
-            "profile", "fact",
-        ])
-        trace_test.set_attribute("cca.test.fact_recalled", recalled)
-        assert recalled, \
-            f"Agent didn't recall '{company}': {result.content[:200]}"
-
-        cca.cleanup_test_user(name)
+            content_lower = result.content.lower()
+            recalled = any(w in content_lower for w in [
+                company.lower(), "employer", name.lower(),
+            ])
+            trace_test.set_attribute("cca.test.fact_recalled", recalled)
+            assert recalled, \
+                f"Agent didn't recall '{company}': {result.content[:200]}"
+        finally:
+            cca.cleanup_test_user(name)
 
 
 class TestFullUserLifecycle:
@@ -68,28 +69,36 @@ class TestFullUserLifecycle:
             f"Hi I'm {name}. I work at LifecycleCorp and know Rust. "
             f"Write a Python function to find the maximum in a list."
         )
+        try:
+            # Step 1: Create user with facts via coding task
+            r1 = cca.chat(message, session_id=session_id)
 
-        # Step 1: Create user with facts via coding task
-        r1 = cca.chat(message, session_id=session_id, timeout=240)
+            evaluate_response(
+                r1, message, trace_test, judge_model, "integration",
+            )
 
-        evaluate_response(r1, message, trace_test, judge_model, "integration")
+            trace_test.set_attribute("cca.test.step1", r1.content[:300])
+            assert r1.content, "Setup step returned empty"
 
-        trace_test.set_attribute("cca.test.step1", r1.content[:300])
-        assert r1.content, "Setup step returned empty"
+            # Step 2: Verify user exists via REST API
+            user = cca.find_user_by_name(name)
+            trace_test.set_attribute("cca.test.user_created", user is not None)
+            assert user is not None, f"User '{name}' not created"
 
-        # Step 2: Verify user exists via REST API
-        user = cca.find_user_by_name(name)
-        trace_test.set_attribute("cca.test.user_created", user is not None)
-        assert user is not None, f"User '{name}' not created"
+            # Step 3: Verify session is identified
+            assert r1.user_identified, \
+                "Session should be identified after auto-creation"
 
-        # Step 3: Verify session is identified
-        assert r1.user_identified, \
-            "Session should be identified after auto-creation"
+            # Step 4: Delete via REST API
+            cca.cleanup_test_user(name)
 
-        # Step 4: Delete via REST API
-        cca.cleanup_test_user(name)
-
-        # Step 5: Verify deletion
-        user_after = cca.find_user_by_name(name)
-        trace_test.set_attribute("cca.test.user_deleted", user_after is None)
-        assert user_after is None, f"User '{name}' still exists after delete"
+            # Step 5: Verify deletion
+            user_after = cca.find_user_by_name(name)
+            trace_test.set_attribute(
+                "cca.test.user_deleted", user_after is None,
+            )
+            assert user_after is None, \
+                f"User '{name}' still exists after delete"
+        finally:
+            # Safety net — cleanup if test failed before step 4
+            cca.cleanup_test_user(name)

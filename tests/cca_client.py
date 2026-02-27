@@ -115,8 +115,6 @@ class CCAClient:
         session_id: Optional[str] = None,
         idle_timeout: Optional[float] = None,
         system: Optional[str] = None,
-        # Legacy parameter — ignored, kept for backwards compatibility
-        timeout: Optional[int] = None,
     ) -> ChatResult:
         """POST /v1/chat/completions — send a message to the CCA agent.
 
@@ -129,7 +127,6 @@ class CCAClient:
             session_id: Optional session ID for multi-turn conversations.
             idle_timeout: Seconds of silence before timeout (default: 120s).
             system: Optional system message.
-            timeout: DEPRECATED — ignored. Use idle_timeout instead.
         """
         session_id = session_id or f"test-{uuid.uuid4().hex[:12]}"
         read_timeout = idle_timeout or self.idle_timeout
