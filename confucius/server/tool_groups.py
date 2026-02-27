@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..orchestrator.extensions import Extension
 from ..orchestrator.extensions.caching.anthropic import AnthropicPromptCaching
@@ -150,11 +150,6 @@ def _get_commands_for_route(expert: ExpertType) -> Optional[Dict[str, str]]:
 
 
 # ========================= Extension Builder =========================
-
-
-def _get_functions() -> list[Callable[..., Any]]:
-    """Placeholder for future function-call tools."""
-    return []
 
 
 def build_extensions_for_route(

@@ -23,8 +23,6 @@ import json
 import logging
 from typing import Any
 
-from pydantic import Field
-
 from ...core.analect import AnalectRunContext
 from ...core.chat_models.bedrock.api.invoke_model import anthropic as ant
 from ...orchestrator.extensions.tool_use import ToolUseExtension

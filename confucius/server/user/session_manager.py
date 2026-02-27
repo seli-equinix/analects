@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import html as html_module
 import json
 import logging
 import os
@@ -734,7 +733,7 @@ class UserSessionManager:
         if self._embedding_func is not None:
             await self._embedding_func.close()
             self._embedding_func = None
-        # qdrant_client is synchronous - no close needed
+        # AsyncQdrantClient auto-closes; no manual close needed
         self._qdrant = None
         self._initialized = False
 

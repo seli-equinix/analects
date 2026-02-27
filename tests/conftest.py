@@ -251,18 +251,6 @@ def require_cca_healthy(cca):
 # ==================== Test Helpers ====================
 
 
-@pytest.fixture
-def unique_name():
-    """Generate a unique test user name to avoid cross-test interference."""
-    return f"TestUser_{uuid.uuid4().hex[:8]}"
-
-
-@pytest.fixture
-def unique_session():
-    """Generate a unique session ID."""
-    return f"test-{uuid.uuid4().hex[:12]}"
-
-
 # ==================== Session-Level Cleanup ====================
 
 
