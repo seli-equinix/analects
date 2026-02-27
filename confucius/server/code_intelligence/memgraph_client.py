@@ -129,16 +129,19 @@ class MemgraphClient:
                 )
 
                 # Clean up stubs that will be re-created as real nodes
+                # Scoped to project to avoid corrupting other projects' stubs
                 func_names = [f.get("name", "") for f in functions if f.get("name")]
                 if func_names:
                     await session.run(
                         """
                         MATCH (stub:Function)
                         WHERE stub.name IN $names
+                          AND stub.project = $project
                           AND (stub.file_path IS NULL OR stub.file_path = '')
                         DETACH DELETE stub
                         """,
                         names=func_names,
+                        project=project,
                     )
 
                 # Create File node

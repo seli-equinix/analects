@@ -45,11 +45,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.py
 RUN python3 /tmp/build_languages.py && rm /tmp/build_languages.py
 
-# Install CCA package (editable for development)
+# Install CCA package
 COPY pyproject.toml setup.py ./
 COPY confucius/ confucius/
 COPY scripts/ scripts/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash --uid 1000 cca && \

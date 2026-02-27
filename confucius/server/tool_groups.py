@@ -130,16 +130,6 @@ def get_max_iterations(route: RouteDecision) -> int:
     return max(base, min(from_steps, 200))
 
 
-# Command allowlists per route.  None = no shell access.
-ROUTE_COMMANDS: Dict[ExpertType, Optional[Dict[str, str]]] = {
-    ExpertType.USER: None,
-    ExpertType.CODER: None,  # filled lazily
-    ExpertType.INFRASTRUCTURE: None,  # filled lazily
-    ExpertType.SEARCH: None,
-    ExpertType.PLANNER: None,
-}
-
-
 def _get_commands_for_route(expert: ExpertType) -> Optional[Dict[str, str]]:
     """Return the command allowlist for a route (lazy evaluation)."""
     if expert == ExpertType.INFRASTRUCTURE:

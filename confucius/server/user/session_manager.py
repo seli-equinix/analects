@@ -660,6 +660,12 @@ class UserSessionManager:
         self._local_sessions: Dict[str, Session] = {}
         self._local_profiles: Dict[str, UserProfile] = {}
 
+        # Per-user locks to prevent concurrent read-modify-write races
+        self._user_locks: Dict[str, asyncio.Lock] = {}
+
+        # Cache: whether user_contexts collection exists (avoid repeated get_collections)
+        self._contexts_collection_verified: bool = False
+
         self._initialized: bool = False
 
     async def initialize(self) -> None:
@@ -820,6 +826,12 @@ class UserSessionManager:
             return None
         return await self._get_user_profile(session.user_id)
 
+    def _get_user_lock(self, user_id: str) -> asyncio.Lock:
+        """Get or create a per-user lock for serializing profile mutations."""
+        if user_id not in self._user_locks:
+            self._user_locks[user_id] = asyncio.Lock()
+        return self._user_locks[user_id]
+
     async def link_session_to_user(
         self,
         session: Session,
@@ -837,46 +849,53 @@ class UserSessionManager:
         if client_type:
             session.client_type = client_type
 
-        # Update user profile
-        user.last_seen = time.time()
-        user.session_count += 1
+        # Serialize all profile mutations under per-user lock
+        async with self._get_user_lock(user.user_id):
+            # Update user profile
+            user.last_seen = time.time()
+            user.session_count += 1
 
-        # Add session to history (keep last 50)
-        if session.session_id not in user.session_history:
-            user.session_history.append(session.session_id)
-            if len(user.session_history) > 50:
-                user.session_history = user.session_history[-50:]
+            # Add session to history (keep last 50)
+            if session.session_id not in user.session_history:
+                user.session_history.append(session.session_id)
+                if len(user.session_history) > 50:
+                    user.session_history = user.session_history[-50:]
 
-        # Track client type
-        if client_type and client_type not in user.known_clients:
-            user.known_clients.append(client_type)
+            # Track client type
+            if client_type and client_type not in user.known_clients:
+                user.known_clients.append(client_type)
 
-        # Flush pending facts from session context to user
-        pending_facts: Dict[str, str] = session.context.pop(
-            "pending_facts", {}
-        )
-        if pending_facts:
-            user.facts.update(pending_facts)
-            logger.info(
-                "Applied %d pending facts to user %s",
-                len(pending_facts),
-                user.display_name,
+            # Flush pending facts from session context to user
+            pending_facts: Dict[str, str] = session.context.pop(
+                "pending_facts", {}
             )
+            if pending_facts:
+                user.facts.update(pending_facts)
+                # Cap facts to prevent unbounded growth
+                if len(user.facts) > 50:
+                    keys = list(user.facts.keys())
+                    for k in keys[:-50]:
+                        del user.facts[k]
+                logger.info(
+                    "Applied %d pending facts to user %s",
+                    len(pending_facts),
+                    user.display_name,
+                )
 
-        # Flush pending preferences
-        pending_prefs: Dict[str, Any] = session.context.pop(
-            "pending_preferences", {}
-        )
-        if pending_prefs:
-            user.preferences.update(pending_prefs)
-            logger.info(
-                "Applied %d pending preferences to user %s",
-                len(pending_prefs),
-                user.display_name,
+            # Flush pending preferences
+            pending_prefs: Dict[str, Any] = session.context.pop(
+                "pending_preferences", {}
             )
+            if pending_prefs:
+                user.preferences.update(pending_prefs)
+                logger.info(
+                    "Applied %d pending preferences to user %s",
+                    len(pending_prefs),
+                    user.display_name,
+                )
 
-        await self.save_session(session)
-        await self.save_user_profile(user)
+            await self.save_session(session)
+            await self.save_user_profile(user)
 
         logger.info(
             "Linked session %s... to user %s (client: %s)",
@@ -1399,14 +1418,15 @@ class UserSessionManager:
                 from qdrant_client.http import models
 
                 # Step 1: exact match (scroll all profiles, compare names)
-                results = await self._qdrant.scroll(
-                    collection_name=PROFILES_COLLECTION,
-                    limit=100,
-                    with_payload=True,
-                )
-
-                if results[0]:
-                    for point in results[0]:
+                offset = None
+                while True:
+                    points, offset = await self._qdrant.scroll(
+                        collection_name=PROFILES_COLLECTION,
+                        limit=100,
+                        offset=offset,
+                        with_payload=True,
+                    )
+                    for point in points:
                         payload = point.payload
                         display = payload.get("display_name", "").lower()
                         aliases = [
@@ -1418,6 +1438,8 @@ class UserSessionManager:
                                 payload.get("display_name"),
                             )
                             return UserProfile.from_dict(payload)
+                    if offset is None:
+                        break
 
                 # Step 2: semantic / fuzzy search via embedding
                 if self._embedding_func is not None:
@@ -1492,6 +1514,11 @@ class UserSessionManager:
             if extracted_lower == alias.lower().strip():
                 return 1.0
 
+        # First-name match (first word of display name) — higher score
+        display_first = display_lower.split()[0] if display_lower else ""
+        if extracted_lower == display_first:
+            return 0.90
+
         # Partial containment
         if extracted_lower in display_lower or display_lower in extracted_lower:
             return 0.85
@@ -1499,11 +1526,6 @@ class UserSessionManager:
             alias_lower = alias.lower().strip()
             if extracted_lower in alias_lower or alias_lower in extracted_lower:
                 return 0.85
-
-        # First-name match (first word of display name)
-        display_first = display_lower.split()[0] if display_lower else ""
-        if extracted_lower == display_first:
-            return 0.90
 
         # Simple Levenshtein-like similarity for typos
         if abs(len(extracted_lower) - len(display_lower)) <= 2:
@@ -1589,10 +1611,7 @@ class UserSessionManager:
         if secondary_user.last_seen > primary_user.last_seen:
             primary_user.last_seen = secondary_user.last_seen
 
-        # Save merged profile
-        await self.save_user_profile(primary_user)
-
-        # Delete secondary from Qdrant
+        # Delete secondary from Qdrant FIRST (idempotent — safe to retry)
         if self._qdrant is not None:
             try:
                 from qdrant_client.http import models
@@ -1625,6 +1644,9 @@ class UserSessionManager:
                 logger.warning(
                     "Failed to delete secondary profile from Qdrant: %s", e
                 )
+
+        # Save merged profile (after delete — data is in primary_user object for retry)
+        await self.save_user_profile(primary_user)
 
         # Remove from local cache
         self._local_profiles.pop(secondary_user.user_id, None)
@@ -1690,10 +1712,11 @@ class UserSessionManager:
                         await self._update_user_context_embedding(profile)
                     return
             except Exception as e:
-                logger.warning("Qdrant save profile failed: %s", e)
-
-        # Fallback
-        self._local_profiles[profile.user_id] = profile
+                logger.error(
+                    "Qdrant save profile FAILED for %s: %s — profile NOT persisted",
+                    profile.display_name, e,
+                )
+                raise
 
     async def _get_user_profile(
         self, user_id: str
@@ -1955,20 +1978,22 @@ class UserSessionManager:
 
             embedding = embeddings[0]
 
-            # Ensure collection exists
-            collections = (await self._qdrant.get_collections()).collections
-            if CONTEXTS_COLLECTION not in [c.name for c in collections]:
-                await self._qdrant.create_collection(
-                    collection_name=CONTEXTS_COLLECTION,
-                    vectors_config=models.VectorParams(
-                        size=EMBEDDING_DIMS,
-                        distance=models.Distance.COSINE,
-                    ),
-                )
-                logger.info(
-                    "Created %s collection in Qdrant",
-                    CONTEXTS_COLLECTION,
-                )
+            # Ensure collection exists (cached after first check)
+            if not self._contexts_collection_verified:
+                collections = (await self._qdrant.get_collections()).collections
+                if CONTEXTS_COLLECTION not in [c.name for c in collections]:
+                    await self._qdrant.create_collection(
+                        collection_name=CONTEXTS_COLLECTION,
+                        vectors_config=models.VectorParams(
+                            size=EMBEDDING_DIMS,
+                            distance=models.Distance.COSINE,
+                        ),
+                    )
+                    logger.info(
+                        "Created %s collection in Qdrant",
+                        CONTEXTS_COLLECTION,
+                    )
+                self._contexts_collection_verified = True
 
             point_id = _stable_point_id(user.user_id)
             await self._qdrant.upsert(
@@ -2043,19 +2068,20 @@ class UserSessionManager:
             )
 
             if not results:
-                # Peek without threshold for debug logging
-                all_results = (await self._qdrant.query_points(
-                    collection_name=CONTEXTS_COLLECTION,
-                    query=msg_embedding,
-                    limit=3,
-                    with_payload=True,
-                )).points
-                if all_results:
-                    logger.info(
-                        "User inference: Best match score %.3f "
-                        "(below threshold)",
-                        all_results[0].score,
-                    )
+                if logger.isEnabledFor(logging.DEBUG):
+                    # Peek without threshold for debug logging only
+                    all_results = (await self._qdrant.query_points(
+                        collection_name=CONTEXTS_COLLECTION,
+                        query=msg_embedding,
+                        limit=3,
+                        with_payload=True,
+                    )).points
+                    if all_results:
+                        logger.debug(
+                            "User inference: Best match score %.3f "
+                            "(below threshold)",
+                            all_results[0].score,
+                        )
                 return {
                     "user": None,
                     "confidence": 0.0,
@@ -2128,6 +2154,17 @@ class UserSessionManager:
                         "already linked to the same profile."
                     ),
                 }
+            # Check if secondary is already an alias of primary (merge done but delete failed)
+            if alias_name.lower() in [a.lower() for a in primary_user.aliases]:
+                await self.link_session_to_user(session, primary_user, client_type)
+                return {
+                    "action": "already_same",
+                    "user": primary_user,
+                    "message": (
+                        f"{alias_name} is already an alias of "
+                        f"{primary_user.display_name}."
+                    ),
+                }
             # Merge
             merged = await self.merge_user_profiles(
                 primary_user, alias_user, session
@@ -2163,7 +2200,7 @@ class UserSessionManager:
 
         elif alias_user:
             old_name = alias_user.display_name
-            alias_user.display_name = primary_name.capitalize()
+            alias_user.display_name = primary_name.title()
             if alias_name.lower() not in [
                 a.lower() for a in alias_user.aliases
             ]:
@@ -2190,7 +2227,7 @@ class UserSessionManager:
             # Neither exists -- create new
             profile = UserProfile(
                 user_id=str(uuid.uuid4()),
-                display_name=primary_name.capitalize(),
+                display_name=primary_name.title(),
                 aliases=[alias_name.lower(), primary_name.lower()],
                 known_clients=[client_type] if client_type else [],
                 session_count=1,
@@ -2223,6 +2260,9 @@ class UserSessionManager:
         """
         if not name:
             return {"error": "name is required"}
+
+        if not self._is_valid_name(name):
+            return {"error": f"Invalid name: '{name}'"}
 
         # Check alias consolidation first
         consolidation = self.detect_alias_consolidation(name)
@@ -2260,7 +2300,7 @@ class UserSessionManager:
         # Create new profile
         profile = UserProfile(
             user_id=str(uuid.uuid4()),
-            display_name=name.capitalize(),
+            display_name=name.title(),
             aliases=[name.lower()],
             known_clients=[client_type] if client_type else [],
             session_count=1,

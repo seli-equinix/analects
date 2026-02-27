@@ -159,8 +159,8 @@ class NoteSearchExtension(ToolUseExtension):
                     continue
                 payload = pt.payload or {}
                 formatted.append({
-                    "note": payload.get("note", ""),
-                    "category": payload.get("category", ""),
+                    "note": payload.get("content", ""),
+                    "category": payload.get("note_type", ""),
                     "session_id": payload.get("session_id", ""),
                     "timestamp": payload.get("timestamp", ""),
                     "score": round(pt.score, 3),

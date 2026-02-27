@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Callable, Optional
 
 from .io_adapter import HttpIOInterface, OutputChunk
 from .models import ChatCompletionRequest, build_chunk
@@ -43,7 +43,7 @@ async def sse_stream(
     agent_task: asyncio.Task,  # type: ignore[type-arg]
     request: ChatCompletionRequest,
     completion_id: str,
-    metadata_callback: Optional[callable] = None,
+    metadata_callback: Optional[Callable[..., Any]] = None,
 ) -> AsyncGenerator[str, None]:
     """Stream orchestrator output as SSE events.
 

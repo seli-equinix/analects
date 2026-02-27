@@ -40,9 +40,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 DEFAULT_QDRANT_URL: str = os.getenv("QDRANT_URL", "http://192.168.4.205:6333")
 DEFAULT_EMBEDDING_URL: str = os.getenv("EMBEDDING_URL", "http://192.168.4.205:8200")
-DEFAULT_REDIS_URL: str = os.getenv(
-    "REDIS_URL", "redis://:Loveme-sex64@192.168.4.205:6379/0"
-)
+DEFAULT_REDIS_URL: str = os.getenv("REDIS_URL", "")
 
 NOTES_COLLECTION: str = "cca_notes"
 EMBEDDING_DIMS: int = 4096
@@ -144,17 +142,20 @@ class NoteObserver:
 
         # ---- Redis (reuse if injected, else connect) --------------------
         if self._redis is None:
-            try:
-                import redis.asyncio as redis_async
+            if not self._redis_url:
+                logger.warning("NoteObserver: REDIS_URL not set — trajectory storage disabled")
+            else:
+                try:
+                    import redis.asyncio as redis_async
 
-                self._redis = redis_async.from_url(
-                    self._redis_url, decode_responses=True
-                )
-                await self._redis.ping()
-                logger.info("NoteObserver connected to Redis")
-            except Exception as e:
-                logger.warning("NoteObserver: Redis unavailable: %s", e)
-                self._redis = None
+                    self._redis = redis_async.from_url(
+                        self._redis_url, decode_responses=True
+                    )
+                    await self._redis.ping()
+                    logger.info("NoteObserver connected to Redis")
+                except Exception as e:
+                    logger.warning("NoteObserver: Redis unavailable: %s", e)
+                    self._redis = None
 
         # ---- Qdrant -----------------------------------------------------
         try:
@@ -191,6 +192,7 @@ class NoteObserver:
             await self._openai_client.close()
             self._openai_client = None
         self._qdrant = None
+        self._initialized = False
 
     async def _ensure_collection(self) -> None:
         """Create the cca_notes collection if it doesn't exist."""
@@ -668,11 +670,12 @@ class NoteObserver:
                 info = await self._qdrant.get_collection(NOTES_COLLECTION)
                 stats["total_notes"] = info.points_count
 
-                # Scroll all notes to compute breakdowns
+                # Scroll notes to compute breakdowns (cap at 1000 for perf)
                 notes_by_type: Dict[str, int] = {}
                 notes_by_user: Dict[str, int] = {}
                 offset = None
-                while True:
+                scanned = 0
+                while scanned < 1000:
                     results, next_offset = await self._qdrant.scroll(
                         collection_name=NOTES_COLLECTION,
                         limit=100,
@@ -686,6 +689,7 @@ class NoteObserver:
                             notes_by_type[nt] = notes_by_type.get(nt, 0) + 1
                             uid = pt.payload.get("user_id") or "anonymous"
                             notes_by_user[uid] = notes_by_user.get(uid, 0) + 1
+                    scanned += len(results)
                     if next_offset is None:
                         break
                     offset = next_offset

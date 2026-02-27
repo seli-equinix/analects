@@ -114,6 +114,10 @@ class TreeSitterParser:
             logger.debug(f"Language {language} not supported by tree-sitter, using fallback")
             return []  # Will fallback to regex in codebase_indexer
 
+        if language not in self.parsers:
+            logger.warning(f"Parser for {language} failed to initialize, using fallback")
+            return []
+
         try:
             parser = self.parsers[language]
             tree = parser.parse(bytes(code, "utf8"))
@@ -1131,8 +1135,8 @@ class TreeSitterParser:
             if help_match:
                 help_text = help_match.group(1).strip()
                 # Extract .SYNOPSIS and .DESCRIPTION if present
-                synopsis = re.search(r'\.SYNOPSIS\s+(.*?)(?=\.|$)', help_text, re.DOTALL | re.IGNORECASE)
-                description = re.search(r'\.DESCRIPTION\s+(.*?)(?=\.|$)', help_text, re.DOTALL | re.IGNORECASE)
+                synopsis = re.search(r'\.SYNOPSIS\s+(.*?)(?=\n\s*\.[A-Z]|$)', help_text, re.DOTALL | re.IGNORECASE)
+                description = re.search(r'\.DESCRIPTION\s+(.*?)(?=\n\s*\.[A-Z]|$)', help_text, re.DOTALL | re.IGNORECASE)
 
                 if synopsis or description:
                     result = []

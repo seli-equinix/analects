@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 from datetime import datetime
@@ -66,8 +67,9 @@ def _sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _doc_id(file_path: str, name: str) -> str:
-    return hashlib.md5(f"{file_path}::{name}".encode()).hexdigest()
+def _doc_id(file_path: str, name: str, class_name: str = "") -> str:
+    qualified = f"{class_name}.{name}" if class_name else name
+    return hashlib.md5(f"{file_path}::{qualified}".encode()).hexdigest()
 
 
 class WorkspaceIndexer:
@@ -80,6 +82,7 @@ class WorkspaceIndexer:
         self._clients = backend_clients
         self._parser: Any = None  # TreeSitterParser (lazy)
         self._graph: Any = None   # MemgraphClient (lazy)
+        self._collection_verified: bool = False
 
     def _get_parser(self) -> Any:
         """Lazy-load tree-sitter parser."""
@@ -315,7 +318,6 @@ class WorkspaceIndexer:
                     "return_type": func.get("return_type") or "",
                 }
                 # JSON-encode list fields
-                import json
                 for list_field in ("parameters", "decorators", "calls", "imports"):
                     val = func.get(list_field, [])
                     if isinstance(val, list):
@@ -328,7 +330,7 @@ class WorkspaceIndexer:
 
                 documents.append(doc_text[:10000])
                 metadatas.append(meta)
-                ids.append(_doc_id(file_path, func_name))
+                ids.append(_doc_id(file_path, func_name, func.get("class_name", "")))
         else:
             # Chunk file content
             chunks = self._chunk_content(content)
@@ -445,18 +447,23 @@ class WorkspaceIndexer:
 
         from qdrant_client.models import PointStruct, Distance, VectorParams
 
-        # Ensure collection exists
-        try:
-            await qdrant.get_collection(COLLECTION_NAME)
-        except Exception:
-            await qdrant.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=EMBEDDING_DIMS,
-                    distance=Distance.COSINE,
-                ),
-            )
-            logger.info("Created Qdrant collection: %s", COLLECTION_NAME)
+        # Ensure collection exists (cached after first check)
+        if not self._collection_verified:
+            try:
+                await qdrant.get_collection(COLLECTION_NAME)
+            except Exception:
+                try:
+                    await qdrant.create_collection(
+                        collection_name=COLLECTION_NAME,
+                        vectors_config=VectorParams(
+                            size=EMBEDDING_DIMS,
+                            distance=Distance.COSINE,
+                        ),
+                    )
+                    logger.info("Created Qdrant collection: %s", COLLECTION_NAME)
+                except Exception:
+                    pass  # Another concurrent task created it
+            self._collection_verified = True
 
         # Build points
         points = []

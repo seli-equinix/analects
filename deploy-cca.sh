@@ -11,7 +11,7 @@ set -e
 
 SPARK1="192.168.4.205"
 SPARK1_USER="seli"
-SPARK1_PASS="Loveme-sex64"
+SPARK1_PASS="${SPARK1_PASS:?Set SPARK1_PASS env var}"
 REMOTE_DIR="docker-swarm-stacks/nvidia-dgx-spark/cca"
 
 ssh_cmd() {

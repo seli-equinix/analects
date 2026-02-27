@@ -19,11 +19,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -221,13 +222,30 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_CORS_ORIGINS = os.getenv(
+    "CCA_CORS_ORIGINS",
+    "http://192.168.4.204:6006,http://192.168.4.205:8500",
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_ADMIN_API_KEY = os.getenv("CCA_ADMIN_API_KEY", "")
+
+
+async def require_admin_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> None:
+    """Dependency: require valid API key for destructive endpoints."""
+    if not _ADMIN_API_KEY:
+        return  # No key configured — allow (dev mode)
+    if x_api_key != _ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing X-API-Key")
 
 
 # ==================== Session ID Derivation ====================
@@ -821,7 +839,7 @@ async def list_users() -> Dict[str, Any]:
     }
 
 
-@app.delete("/users/{user_id}")
+@app.delete("/users/{user_id}", dependencies=[Depends(require_admin_key)])
 async def delete_user(user_id: str) -> Dict[str, Any]:
     """Delete a user profile by user_id (for testing/admin)."""
     result = await user_session_mgr.delete_user_profile(
@@ -929,7 +947,7 @@ async def notes_search(
     }
 
 
-@app.delete("/v1/notes/cleanup")
+@app.delete("/v1/notes/cleanup", dependencies=[Depends(require_admin_key)])
 async def notes_cleanup() -> Dict[str, Any]:
     """Delete anonymous and orphaned notes from the cca_notes collection.
 
@@ -1058,7 +1076,7 @@ async def list_workspace_files() -> Dict[str, Any]:
         return {"error": str(e), "files": []}
 
 
-@app.delete("/workspace/files")
+@app.delete("/workspace/files", dependencies=[Depends(require_admin_key)])
 async def clean_workspace_files(prefix: str = "") -> Dict[str, Any]:
     """Delete files from /workspace matching an optional prefix.
 

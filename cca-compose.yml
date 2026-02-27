@@ -27,7 +27,7 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.4.208:8000/v1}
       - CCA_CONFIG_PATH=/etc/cca/config.toml
       # User-awareness infrastructure (shared with MCP server)
-      - REDIS_URL=redis://:Loveme-sex64@192.168.4.205:6379/0
+      - REDIS_URL=${REDIS_URL}
       - QDRANT_URL=http://192.168.4.205:6333
       - EMBEDDING_URL=http://192.168.4.205:8200
       - SEARXNG_URL=http://192.168.4.205:8888
@@ -47,6 +47,11 @@ services:
       - /home/seli/docker-swarm-stacks:/home/seli/docker-swarm-stacks:ro
     working_dir: /workspace
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8500/health"]
       interval: 30s
@@ -69,7 +74,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-dummy}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.4.208:8000/v1}
       - CCA_CONFIG_PATH=/etc/cca/config.toml
-      - REDIS_URL=redis://:Loveme-sex64@192.168.4.205:6379/0
+      - REDIS_URL=${REDIS_URL}
       - QDRANT_URL=http://192.168.4.205:6333
       - EMBEDDING_URL=http://192.168.4.205:8200
       - SEARXNG_URL=http://192.168.4.205:8888
@@ -88,6 +93,12 @@ services:
       - ./config.toml:/etc/cca/config.toml:ro
       - /home/seli/docker-swarm-stacks:/home/seli/docker-swarm-stacks:ro
     working_dir: /workspace
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # SWE-bench runner
   cca-swebench:
