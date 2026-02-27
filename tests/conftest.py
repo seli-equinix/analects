@@ -43,8 +43,8 @@ log = logging.getLogger(__name__)
 PHOENIX_ENDPOINT = "http://192.168.4.204:4317"
 CCA_BASE_URL = "http://192.168.4.205:8500"
 
-# Single Phoenix project for all tests — categorize via span attributes
-PROJECT_NAME = "cca-tests"
+# Same Phoenix project as the CCA server — test + server spans unified
+PROJECT_NAME = "cca-http"
 
 # Inter-test cooldown (seconds) to prevent server overload.
 # Each test triggers LLM inference on vLLM — without cooldown,
@@ -182,9 +182,11 @@ def judge_model(request):
     2 additional vLLM calls per test (response_quality + task_completion),
     doubling the load on the shared Spark2 vLLM server.
 
-    When enabled, talks directly to vLLM on Spark2:8000/v1 (raw
-    OpenAI-compatible API). Does NOT go through CCA. CCA is the system
-    under test; the judge is an independent assessor.
+    Returns a dict with base_url and model (NOT a Phoenix OpenAIModel).
+    The evaluators make direct httpx calls to vLLM with our own rail
+    extraction that handles Qwen3 thinking-model output. Phoenix's
+    llm_classify can't parse thinking tokens (produces NOT_PARSABLE
+    for ~50% of responses).
     """
     # Check opt-in flag
     use_judge = (
@@ -193,11 +195,6 @@ def judge_model(request):
     )
     if not use_judge:
         log.info("LLM judge disabled (use --with-judge or CCA_RUN_JUDGE=1 to enable)")
-        return None
-
-    try:
-        from phoenix.evals import OpenAIModel
-    except ImportError:
         return None
 
     try:
@@ -211,15 +208,10 @@ def judge_model(request):
         return None
 
     log.info("LLM judge enabled — 2 extra vLLM calls per test")
-    return OpenAIModel(
-        model=VLLM_MODEL,
-        base_url=VLLM_BASE_URL,
-        api_key="not-needed",
-        temperature=0.0,
-        max_tokens=1024,  # Qwen3 thinking model needs room for <think> + label
-        request_timeout=120,  # Qwen3 thinking + CCA contention needs more than 30s
-        timeout=300,  # Overall timeout for retries
-    )
+    return {
+        "base_url": VLLM_BASE_URL,
+        "model": VLLM_MODEL,
+    }
 
 
 # ==================== CCA Client ====================

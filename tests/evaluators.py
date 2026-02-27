@@ -21,8 +21,6 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-import pandas as pd
-
 from .cca_client import ChatResult
 
 log = logging.getLogger(__name__)
@@ -198,27 +196,33 @@ def eval_user_identified(result: ChatResult) -> Optional[Dict[str, Any]]:
 # Prompt templates for llm_classify. Variables in {curly_braces} are
 # replaced by column names from the DataFrame passed to llm_classify.
 
-RESPONSE_QUALITY_TEMPLATE = """You are evaluating the quality of an AI coding assistant's response.
+RESPONSE_QUALITY_TEMPLATE = """Rate this AI coding assistant response. Answer with ONLY the label on the first line, then a one-sentence explanation.
 
-User's message: {message}
+Labels: good | adequate | poor
 
-Assistant's response: {response}
+User asked: {message}
 
-Rate the quality of this response:
-- good: The response is helpful, accurate, and addresses the user's request
-- adequate: The response partially addresses the request but has issues
-- poor: The response is unhelpful, incorrect, or doesn't address the request"""
+Response: {response}
 
-TASK_COMPLETION_TEMPLATE = """You are evaluating whether an AI coding assistant completed the user's task.
+good = helpful, accurate, addresses the request
+adequate = partially addresses but has issues
+poor = unhelpful, incorrect, or off-topic
 
-User's message: {message}
+Label:"""
 
-Assistant's response: {response}
+TASK_COMPLETION_TEMPLATE = """Did this AI coding assistant complete the user's task? Answer with ONLY the label on the first line, then a one-sentence explanation.
 
-Did the assistant complete what was asked?
-- completed: The task was fully accomplished
-- partial: The task was partially done or the answer is incomplete
-- failed: The task was not accomplished or the response is off-topic"""
+Labels: completed | partial | failed
+
+User asked: {message}
+
+Response: {response}
+
+completed = task fully accomplished
+partial = task partially done or incomplete
+failed = task not accomplished or off-topic
+
+Label:"""
 
 RESPONSE_QUALITY_RAILS = ["good", "adequate", "poor"]
 TASK_COMPLETION_RAILS = ["completed", "partial", "failed"]
@@ -233,6 +237,45 @@ RAIL_SCORES = {
 }
 
 
+def _extract_rail_from_thinking(content: str, rails: list) -> Optional[str]:
+    """Extract a rail label from thinking-model output.
+
+    Qwen3 thinking models embed reasoning in the content field (with or
+    without <think> tags). This parser handles both cases:
+      1. Strip <think>...</think> blocks, then look for the rail.
+      2. Look for bold rail words like **good** (common in analysis).
+      3. Look for a rail word on its own line.
+      4. Fallback: last rail word mentioned (thinking comes first,
+         answer comes last).
+    """
+    # 1. Strip <think>...</think> blocks
+    cleaned = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+    # 2. Check cleaned content for a rail on its own line
+    for line in cleaned.split("\n"):
+        word = line.strip().lower().rstrip(".:!,")
+        if word in [r.lower() for r in rails]:
+            return word
+
+    # 3. Check for bold rail word like **good**
+    for rail in rails:
+        if f"**{rail}**" in cleaned.lower():
+            return rail
+
+    # 4. Fallback: last rail word in the full content (answer comes after thinking)
+    last_match = None
+    content_lower = content.lower()
+    for rail in rails:
+        idx = content_lower.rfind(rail.lower())
+        if idx >= 0:
+            if last_match is None or idx > last_match[1]:
+                last_match = (rail, idx)
+    if last_match:
+        return last_match[0]
+
+    return None
+
+
 def _run_llm_classify(
     judge_model,
     message: str,
@@ -241,30 +284,52 @@ def _run_llm_classify(
     rails: list,
     eval_name: str,
 ) -> Dict[str, Any]:
-    """Run llm_classify with a single example. Returns eval dict."""
-    from phoenix.evals import llm_classify
+    """Run LLM judge via direct API call with thinking-model support.
 
-    df = pd.DataFrame([{"message": message[:2000], "response": response[:2000]}])
+    Uses httpx to call vLLM directly instead of phoenix llm_classify,
+    which can't handle Qwen3's thinking output (produces NOT_PARSABLE
+    for ~50% of responses). Our _extract_rail_from_thinking parser
+    handles <think> tags and embedded reasoning robustly.
+    """
+    import httpx
+
+    prompt = template.format(
+        message=message[:2000],
+        response=response[:2000],
+    )
 
     try:
-        result_df = llm_classify(
-            data=df,
-            model=judge_model,
-            template=template,
-            rails=rails,
-            provide_explanation=True,
-            verbose=False,
-            use_function_calling_if_available=False,
+        api_resp = httpx.post(
+            f"{judge_model['base_url']}/chat/completions",
+            json={
+                "model": judge_model["model"],
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0,
+                "max_tokens": 2048,  # Qwen3 thinking model needs room to think + label
+            },
+            timeout=120,
         )
-        label = result_df["label"].iloc[0]
-        explanation = result_df.get("explanation", pd.Series([""])).iloc[0] or ""
+        api_resp.raise_for_status()
+        data = api_resp.json()
 
-        if label is None or (isinstance(label, float) and pd.isna(label)):
+        content = data["choices"][0]["message"]["content"] or ""
+
+        # Try reasoning_content first (vLLM may separate it)
+        reasoning = data["choices"][0]["message"].get("reasoning_content", "")
+
+        # Extract rail label from content (handles thinking output)
+        label = _extract_rail_from_thinking(content, rails)
+
+        if label is None:
             label = "error"
             score = SCORE_FAIL
-            explanation = "Judge returned no label"
+            explanation = f"Could not extract rail from: {content[:300]}"
         else:
             score = RAIL_SCORES.get(label, SCORE_FAIL)
+            # Use cleaned content as explanation
+            explanation = re.sub(
+                r"<think>.*?</think>", "", content, flags=re.DOTALL
+            ).strip()
 
     except Exception as e:
         label = "error"
