@@ -16,6 +16,27 @@ from ..extensions.base import Extension
 from ..tags import Tag
 
 
+# Common tool error patterns → actionable guidance for the LLM.
+# When these patterns appear in exception messages, append a HINT
+# so the LLM self-corrects instead of retrying the same broken approach.
+_ERROR_HINTS: list[tuple[str, str]] = [
+    ("here-document", "Use echo, printf, or the write_file tool instead of heredoc syntax."),
+    ("heredoc", "Use echo, printf, or the write_file tool instead of heredoc syntax."),
+    ("jsondecode", "Simplify your JSON input — avoid nested quotes and special characters."),
+    ("unterminated string", "Check for unclosed quotes in your command."),
+]
+
+
+def _enhance_error_message(tool_name: str, exc: Exception) -> str:
+    """Add actionable guidance to tool error messages."""
+    base = f"tool use `{tool_name}` failed due to: {type(exc).__name__}: {str(exc)}"
+    error_lower = f"{type(exc).__name__}: {str(exc)}".lower()
+    for pattern, guidance in _ERROR_HINTS:
+        if pattern in error_lower:
+            return f"{base}\n\nHINT: {guidance}"
+    return base
+
+
 class ToolUseExtension(Extension, ABC):
     exceptions: tuple[type[Exception], ...] = Field(
         default=(Exception,),
@@ -147,7 +168,7 @@ class ToolUseExtension(Extension, ABC):
             if is_retryable:
                 return ant.MessageContentToolResult(
                     tool_use_id=tool_use.id,
-                    content=f"tool use `{tool_use.name}` failed due to: {type(exc).__name__}: {str(exc)}",
+                    content=_enhance_error_message(tool_use.name, exc),
                     is_error=True,
                 )
             else:

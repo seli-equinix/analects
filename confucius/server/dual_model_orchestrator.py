@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 # Max consecutive 8B iterations with tool errors before escalating to 80B
 MAX_FAST_CONSECUTIVE_FAILURES = 3
 
+# Global error circuit breaker — works for ALL models (not just 8B→80B).
+# After HINT threshold: inject a recovery message suggesting different approach.
+# After STOP threshold: force the LLM to respond without tools.
+ERROR_HINT_THRESHOLD = 3
+ERROR_STOP_THRESHOLD = 5
+
 # How many times the 8B can produce identical output before we consider
 # it stuck. 2 means: first time is fine, second identical output = stalled.
 STALL_REPEAT_THRESHOLD = 2
@@ -115,6 +121,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     _synthesis_done: bool = PrivateAttr(default=False)
     # Tool-nudge: re-prompt once if model describes intent but doesn't call tools
     _tool_nudge_done: bool = PrivateAttr(default=False)
+    # Global error circuit breaker (works for 80B too, not just 8B→80B)
+    _total_consecutive_errors: int = PrivateAttr(default=0)
+    _error_hint_injected: bool = PrivateAttr(default=False)
 
     # ── Model selection ──────────────────────────────────────────
 
@@ -244,6 +253,10 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 "cca.dual_model.repeated_context_count",
                 self._repeated_context_count,
             )
+            span.set_attribute(
+                "cca.dual_model.total_consecutive_errors",
+                self._total_consecutive_errors,
+            )
             if self._last_tool_names:
                 span.set_attribute(
                     "cca.dual_model.last_tools",
@@ -344,6 +357,54 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     await self._process_interruption(exc, context)
                 finally:
                     self._tool_use_queue.clear()
+
+                # Global error circuit breaker — recover from error loops
+                if self._total_consecutive_errors >= ERROR_STOP_THRESHOLD:
+                    logger.warning(
+                        "Error circuit breaker: %d consecutive errors "
+                        "— forcing text response",
+                        self._total_consecutive_errors,
+                    )
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "STOP: You have had too many consecutive tool "
+                                "failures. Do NOT call any more tools. Respond "
+                                "with what you have accomplished so far and "
+                                "explain what you were unable to complete."
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    # Reset so the forced response doesn't re-trigger
+                    self._total_consecutive_errors = 0
+                    self._error_hint_injected = False
+                elif (
+                    self._total_consecutive_errors >= ERROR_HINT_THRESHOLD
+                    and not self._error_hint_injected
+                ):
+                    logger.warning(
+                        "Error circuit breaker: %d consecutive errors "
+                        "— injecting recovery hint",
+                        self._total_consecutive_errors,
+                    )
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "NOTICE: You have had multiple consecutive tool "
+                                "failures. Try a completely different approach:\n"
+                                "- If bash heredoc syntax failed, use echo or "
+                                "write_file instead\n"
+                                "- If a command keeps failing, simplify it or "
+                                "break it into smaller steps\n"
+                                "- If you are stuck, skip this step and move on"
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    self._error_hint_injected = True
                 continue
 
             elif self._using_fast_model:
@@ -459,7 +520,14 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
 
         await super()._process_tool_use_queue(context)
 
-        # Quality gate: check for errors after processing
+        # Global error circuit breaker (all models)
+        if self._last_queue_had_error:
+            self._total_consecutive_errors += 1
+        else:
+            self._total_consecutive_errors = 0
+            self._error_hint_injected = False
+
+        # Quality gate: check for errors after processing (8B→80B)
         self._update_quality_gate()
 
     def _update_quality_gate(self) -> None:
