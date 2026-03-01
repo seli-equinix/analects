@@ -514,6 +514,13 @@ async def _handle_chat_completions(
                 "\n[User identified by router — no identification tools needed. "
                 "Use remember_user_fact if user mentions personal details during work.]"
             )
+        elif id_source == "regex_auto":
+            user_context += (
+                "\n[New user profile just created — IMMEDIATELY extract and save "
+                "ALL technical skills, tools, and facts they mentioned using "
+                "remember_user_fact (key='skill', value='<skill>') for EACH skill. "
+                "Do this BEFORE answering their question.]"
+            )
     elif id_result.get("action") == "asking":
         user_context = build_uncertain_context(
             id_result.get("potential_user", ""),
