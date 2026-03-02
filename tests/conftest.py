@@ -203,7 +203,7 @@ def pytest_runtest_makereport(item, call):
 
 
 VLLM_BASE_URL = "http://192.168.4.208:8000/v1"
-VLLM_MODEL = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+VLLM_MODEL = "/models/Qwen3.5-35B-A3B-FP8"
 
 
 @pytest.fixture(scope="session")

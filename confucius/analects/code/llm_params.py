@@ -45,7 +45,7 @@ GPT5_2_THINKING = LLMParams(
 )
 
 QWEN3_80B_CODER = LLMParams(
-    model="/models/Qwen3-Next-80B-A3B-Thinking-FP8",
+    model="/models/Qwen3.5-35B-A3B-FP8",
     initial_max_tokens=8192,
     max_tokens=16384,
     temperature=0.3,

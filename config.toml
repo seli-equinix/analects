@@ -63,7 +63,7 @@ cost_per_1m_output = 15.00
 # ──────────────────────────────────────────────
 
 [providers.local.coder]
-model = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://192.168.4.208:8000/v1"
 api_key_env = "OPENAI_API_KEY"
@@ -86,7 +86,7 @@ cost_per_1m_input = 0.0
 cost_per_1m_output = 0.0
 
 [providers.local.planner]
-model = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://192.168.4.208:8000/v1"
 api_key_env = "OPENAI_API_KEY"
@@ -95,7 +95,7 @@ max_tokens = 8192
 temperature = 0.2
 
 [providers.local.reviewer]
-model = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://192.168.4.208:8000/v1"
 api_key_env = "OPENAI_API_KEY"
@@ -113,7 +113,7 @@ max_tokens = 2048
 temperature = 0.3
 
 [providers.local.tester]
-model = "/models/Qwen3-Next-80B-A3B-Thinking-FP8"
+model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://192.168.4.208:8000/v1"
 api_key_env = "OPENAI_API_KEY"
