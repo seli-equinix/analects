@@ -192,18 +192,27 @@ class UtilityToolsExtension(ToolUseExtension):
         name = tool_use.name
         inp = tool_use.input or {}
 
-        # Hard block: search loop guard has determined enough research was done.
-        # Return a stop-signal result so the model has no new data to loop on.
-        if self._search_blocked and name in ("web_search", "fetch_url_content"):
-            logger.info("UtilityToolsExtension: blocked %s call (loop guard active)", name)
+        # Hard block: loop guard fired — too many web_search calls.
+        # Block web_search but ALLOW fetch_url_content: that's the correct tool
+        # when the model wants full page content (not more snippets).
+        if self._search_blocked and name == "web_search":
+            query = (inp.get("query") or "").strip()
+            logger.info(
+                "UtilityToolsExtension: blocked web_search(%r) — use fetch_url_content instead",
+                query,
+            )
             return ant.MessageContentToolResult(
                 tool_use_id=tool_use.id,
                 content=json.dumps({
                     "blocked": True,
                     "message": (
-                        "Search limit reached. You have completed your research. "
-                        "Do NOT call any more search tools. "
-                        "Write your final answer using the information already gathered."
+                        "web_search is no longer available — you have already searched enough. "
+                        "web_search only returns 500-character snippets and cannot give full "
+                        "page content no matter how many times it is called. "
+                        "If you need the full text of a page you found earlier (such as "
+                        "https://docs.python.org/3.13/whatsnew/3.13.html), call "
+                        "fetch_url_content with that exact URL. "
+                        "Otherwise write your final answer now using what you have gathered."
                     ),
                 }),
             )

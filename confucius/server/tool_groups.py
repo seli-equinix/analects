@@ -132,21 +132,16 @@ def get_max_iterations(route: RouteDecision) -> int:
     Formula: max(base, min(estimated_steps * 2, 200)).
     The base per-route value acts as a floor for that route type.
 
-    SEARCH route is exempt from the simple cap: even a "simple" search
-    needs planning + N research iterations (8B) + synthesis + final
-    response (80B) = N+3 iterations minimum.  With cap=8 and N>=5, the
-    orchestrator hits MaxIterationsReachedError before 80B synthesis can
-    run, producing 0-char responses.
-    Even a 1-step search needs at minimum 20 iterations to allow 17+ 8B
-    research iterations plus 80B synthesis.
+    SEARCH route uses direct 35B (no 8B research phase). Correct flow:
+    iter 0 (parallel web_search) → iter 1 (fetch_url_content) → iter 2
+    (write final answer). Cap at 8 — buffer for complexity without
+    allowing the runaway search loops that higher caps permitted.
     """
     base = _BASE_MAX_ITERATIONS.get(route.expert, 20)
     if route.expert == ExpertType.SEARCH:
-        # Never apply simple cap to SEARCH — research + synthesis need room.
-        # Minimum 20 iterations regardless of step estimate so the 80B
-        # synthesis always gets a slot even for "simple" 1-step queries.
-        from_steps = max(route.estimated_steps * 3, 20)
-        return max(base, min(from_steps, 200))
+        # Direct 35B needs at most 8 iterations: search batch + fetch + answer.
+        # Old comment about "17+ 8B iterations" is obsolete — 8B removed.
+        return 8
     if route.is_simple:  # estimated_steps <= 3
         return _SIMPLE_MAX_ITERATIONS
     from_steps = route.estimated_steps * 2

@@ -524,27 +524,29 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         self._last_tool_names,
                     )
 
-                # SEARCH loop guard: detect when the primary 35B keeps doing
-                # single web_search calls after an initial batch. Without a
-                # fast-model handoff, there's no evaluation checkpoint to stop
-                # it — it loops indefinitely. After 6+ total research tool calls,
-                # HARD-BLOCK further searches via UtilityToolsExtension.block_searches()
-                # so the model receives "blocked" results instead of real data.
-                # A message nudge alone doesn't work — the model ignores it when
-                # it has fresh results that "justify" another search.
+                # SEARCH loop guard: fire when model does a single web_search
+                # after the first parallel batch (>= 3 searches done, iter >= 2).
+                # Root cause: the model wants full page content but web_search
+                # only returns 500-char snippets. It loops on site:docs.python.org
+                # queries indefinitely. The correct tool is fetch_url_content.
+                # Hard-block web_search only — fetch_url_content stays open so
+                # the model can read the full page it's been searching for.
                 if (
                     self._tool_orch_params is None  # SEARCH route, no fast model
                     and not self._requires_tool_use  # double-check: SEARCH only
-                    and self._search_call_count >= 6
+                    and self._search_call_count >= 3   # first batch complete
+                    and len(self._last_tool_names) == 1  # single-search loop
+                    and self._last_tool_names[0] == "web_search"  # not fetch_url
+                    and self._num_iterations >= 2  # past the first batch iter
                     and not self._synthesis_done
                 ):
                     logger.info(
-                        "Search loop guard: %d research tool calls done "
-                        "— blocking further searches, injecting write-now nudge",
+                        "Search loop guard: single web_search at iter %d "
+                        "(%d searches done) — blocking web_search, fetch_url_content still open",
+                        self._num_iterations,
                         self._search_call_count,
                     )
-                    # Hard-block: future web_search / fetch_url_content calls
-                    # return "Search limit reached" instead of real results.
+                    # Hard-block web_search only. fetch_url_content remains available.
                     from .utility_tools import UtilityToolsExtension
                     for ext in self.extensions:
                         if isinstance(ext, UtilityToolsExtension):
@@ -554,11 +556,13 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         CfMessage(
                             type=cf.MessageType.HUMAN,
                             content=(
-                                "Research complete. You have done "
-                                f"{self._search_call_count} searches. "
-                                "No more searches are available. "
-                                "Write your FINAL answer NOW using the "
-                                "information already gathered. Include source URLs."
+                                "web_search is now blocked — you have already done "
+                                f"{self._search_call_count} searches and web_search "
+                                "only returns 500-character snippets regardless. "
+                                "To get full page content, call fetch_url_content "
+                                "with a URL you found in your earlier results "
+                                "(e.g. https://docs.python.org/3.13/whatsnew/3.13.html). "
+                                "Then write your final answer."
                             ),
                             additional_kwargs={"__synthetic__": True},
                         )
