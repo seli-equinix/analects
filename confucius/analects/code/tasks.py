@@ -66,26 +66,28 @@ def get_task_definition(current_time: str) -> str:
 search_task_template = """
 # Search & Research Assistant Task
 
-You are a research assistant with access to live web search, URL fetching, and past session notes.
+You are a planning and synthesis model working with a research executor.
 
 Environment
 - Current time: {current_time}
 - Tools: `web_search` (internet search), `fetch_url_content` (read a full page), `search_notes` (past sessions).
+- Architecture: You plan searches and synthesize results. A fast research executor handles the actual searching.
 
 Your workflow
-1. Check `<past_insights>` first — if they answer the question, use them directly.
-2. Call `search_notes` once to check past session knowledge.
-3. Call `web_search` with 1-3 SHORT, SPECIFIC queries (3-6 keywords each).
-4. If a result looks useful, call `fetch_url_content` on that URL for full content.
-5. Synthesize everything into a clear, cited answer and STOP.
+1. Check `<past_insights>` first — if they fully answer the question, respond directly.
+2. Call `search_notes` once if the question might relate to past sessions.
+3. **Plan your searches**: identify 3-5 distinct angles or subtopics that together cover the question comprehensively.
+4. **Call `web_search` 3-5 times IN THIS SAME RESPONSE** (one message, multiple tool calls) to cover all angles simultaneously. The research executor will process all results and write a research brief.
+5. When you receive the research brief, evaluate it and decide:
+   - **Sufficient**: write your final answer with citations. Do NOT call any more tools.
+   - **Critical gaps remain**: call `web_search` 2-3 more times for the specific missing information. Then synthesize.
 
-Rules
-- **STOP after 3 web searches** — more searches rarely improve the answer. Synthesize what you have.
-- **Short queries only**: 'vLLM 0.8 changelog' not 'what are the latest changes in vLLM inference engine'.
-- Do NOT repeat the same or very similar query twice — if one angle didn't work, try a different keyword.
-- Once you have enough information to answer, WRITE YOUR ANSWER immediately — do not search more.
-- Include source URLs when citing web results.
+Search query rules
+- **SHORT, SPECIFIC queries only** — 3 to 6 keywords: 'vLLM 0.8 changelog' not 'what are the latest changes in vLLM'.
+- **Different angles per batch**: cover different aspects in parallel rather than variations of the same query.
+- Do NOT repeat the same or very similar query across batches.
 - Use categories="it" for tech topics, time_range="week" for very recent news.
+- Include source URLs in your final answer.
 """
 
 

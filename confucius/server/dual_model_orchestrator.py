@@ -72,12 +72,14 @@ STALL_REPEAT_THRESHOLD = 2
 # Max consecutive 8B research iterations before forcing 80B synthesis.
 # Prevents the 8B from looping through web_search indefinitely when
 # results vary slightly (evading the hash-based stall detector).
-MAX_CONSECUTIVE_8B_RESEARCH = 5
+# This is a backstop, not a normal limit — good research may need many iterations.
+MAX_CONSECUTIVE_8B_RESEARCH = 8
 
 # Max 8B→80B research cycles before forcing a final answer.
-# Each cycle = 8B does research → 80B synthesizes → 80B calls more tools → repeat.
+# Each cycle = 8B does research → 80B evaluates → 80B calls more tools → repeat.
 # After this many cycles, a "stop researching" message is injected.
-MAX_RESEARCH_CYCLES = 3
+# This is a backstop — the 80B's thinking should decide when to stop naturally.
+MAX_RESEARCH_CYCLES = 8
 
 # Tools that only READ data — safe for the 8B to orchestrate.
 # Any tool NOT in this set triggers 80B on the next iteration.
@@ -145,6 +147,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     # Research depth limiting: count consecutive 8B iterations and total cycles
     _consecutive_8b_iters: int = PrivateAttr(default=0)
     _research_cycle_count: int = PrivateAttr(default=0)
+    # Research Brief Protocol tracking
+    _original_query: str = PrivateAttr(default="")          # captured from first human msg
+    _research_brief: str = PrivateAttr(default="")          # 8B's latest research text
+    _research_executor_injected: bool = PrivateAttr(default=False)  # executor context sent once
+    _search_call_count: int = PrivateAttr(default=0)        # total research tool calls made
 
     # ── Model selection ──────────────────────────────────────────
 
@@ -190,10 +197,12 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         # First iteration — always 80B (needs to understand task)
         if self._num_iterations == 0:
             return False
-        # After synthesis injection, never switch back to 8B.
+        # After synthesis injection (coding routes only), never switch back to 8B.
         # Prevents a post-synthesis tool call (e.g. web_search) from
         # triggering a wasteful 8B research cycle after final answer.
-        if self._synthesis_done:
+        # Research routes (_research_cycle_count > 0) use evaluation checkpoints
+        # instead — the 80B's thinking decides when research is done naturally.
+        if self._synthesis_done and self._research_cycle_count == 0:
             return False
         # After tool execution: use 8B only if ALL tools were research tools
         if self._last_tool_names:
@@ -301,6 +310,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     "cca.dual_model.last_tools",
                     ",".join(self._last_tool_names),
                 )
+            span.set_attribute("cca.research.cycles", self._research_cycle_count)
+            span.set_attribute("cca.research.search_count", self._search_call_count)
+            span.set_attribute(
+                "cca.research.brief_length", len(self._research_brief)
+            )
 
             try:
                 response = await context.invoke(chat, messages)
@@ -337,6 +351,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     CfMessage(type=cf.MessageType.AI, content=text)
                 ])
 
+                # Capture as research brief for the 80B evaluation checkpoint
+                self._research_brief = text
+
                 # Stall detection: hash the output to detect repetition
                 context_hash = hash(text.strip())
                 if context_hash == self._last_fast_context_hash:
@@ -352,7 +369,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     self._last_fast_context_hash = context_hash
 
                 logger.info(
-                    "Dual-model: 8B context (%d chars) → memory for 80B",
+                    "Dual-model: 8B research brief (%d chars) → memory for 80B",
                     len(text),
                 )
             return ""  # Don't stream to user — only 80B speaks
@@ -367,11 +384,32 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
 
         Branches checked after each LLM call:
         1. tool_use_queue → process tools → continue
-        2. 8B done → reset for 80B synthesis → continue
+        2. 8B done → evaluation checkpoint for 80B → continue
         3. No tools called → nudge → continue
-        4. Tool work done, no synthesis → add synthesis prompt → continue
+        4. Tool work done, no synthesis (coding routes only) → synthesis prompt → continue
         5. Done → run extension hooks → break
+
+        Research Brief Protocol (SEARCH route):
+        - 80B plans searches and calls web_search 3-5 times in one response
+        - 8B executes all searches, writes a structured research brief
+        - 80B receives brief + evaluation checkpoint: decides if done or needs more
+        - If done: writes final answer → completion branch
+        - If more needed: calls web_search again → another research cycle
+        - Backstop limits (MAX_RESEARCH_CYCLES, MAX_CONSECUTIVE_8B_RESEARCH) prevent
+          infinite loops but are high enough to not interfere with normal research.
         """
+        # Capture original query for evaluation checkpoint context
+        if not self._original_query:
+            for msg in reversed(context.memory_manager.memory.messages):
+                if (
+                    msg.type == cf.MessageType.HUMAN
+                    and not msg.additional_kwargs.get("__synthetic__")
+                ):
+                    q = msg.content if isinstance(msg.content, str) else ""
+                    if q.strip():
+                        self._original_query = q.strip()[:500]
+                        break
+
         while True:
             # BaseOrchestrator: max_iterations check → get_root_tag() → LLM call
             try:
@@ -444,6 +482,45 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         )
                     ])
                     self._error_hint_injected = True
+
+                # Research Brief Protocol: inject executor context to 8B on first
+                # research delegation. This tells the 8B its role before it runs.
+                if (
+                    not self._research_executor_injected
+                    and self._last_tool_names
+                    and all(t in RESEARCH_TOOLS for t in self._last_tool_names)
+                ):
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "You are now the research executor. The planning "
+                                "model above has kicked off search tasks. Your job:\n"
+                                "1. Review the search results above thoroughly\n"
+                                "2. For highly relevant results, use "
+                                "`fetch_url_content` to read the full page\n"
+                                "3. Run additional targeted searches if they would "
+                                "directly fill gaps in the current results\n"
+                                "4. When you have gathered sufficient information, "
+                                "write a structured Research Brief:\n"
+                                "   **Findings**: Key facts with source URLs\n"
+                                "   **Coverage**: Which aspects are fully answered, "
+                                "partially answered, or unanswered\n"
+                                "   **Confidence**: High / Medium / Low\n\n"
+                                "Be comprehensive — the planning model will use your "
+                                "brief to synthesize the final answer."
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    self._research_executor_injected = True
+                    logger.info(
+                        "Dual-model: research executor context injected "
+                        "(first delegation, %d tools: %s)",
+                        len(self._last_tool_names),
+                        self._last_tool_names,
+                    )
+
                 continue
 
             elif self._using_fast_model:
@@ -476,23 +553,33 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     ])
                     self._force_primary = True  # No more 8B after this
                 else:
+                    # Evaluation checkpoint: 80B decides if research is complete
+                    # or if more searches are needed. Its thinking handles this.
                     logger.info(
-                        "Dual-model: 8B research complete (cycle %d/%d) "
-                        "— injecting synthesis handoff for 80B",
+                        "Dual-model: 8B research complete (cycle %d/%d, "
+                        "brief=%d chars) — injecting evaluation checkpoint",
                         self._research_cycle_count,
                         MAX_RESEARCH_CYCLES,
+                        len(self._research_brief),
                     )
-                    # Critical: tell 80B to STOP searching and synthesize.
-                    # Without this, 80B sees the search results and decides
-                    # to call web_search again, restarting the research cycle.
+                    original_q = self._original_query or "the user's question"
                     context.memory_manager.add_messages([
                         CfMessage(
                             type=cf.MessageType.HUMAN,
                             content=(
-                                "Research is complete. Using the information "
-                                "gathered above, write your final answer now. "
-                                "Do NOT call web_search, fetch_url_content, "
-                                "search_codebase, or other lookup tools."
+                                f"Research phase {self._research_cycle_count} "
+                                f"complete. The research above was gathered to "
+                                f"answer: \"{original_q}\"\n\n"
+                                "Evaluate the research brief and decide:\n"
+                                "- **If sufficient**: write your complete, "
+                                "well-cited final answer now. Do NOT call any "
+                                "tools.\n"
+                                "- **If critical information is missing**: call "
+                                "`web_search` with up to 3 specific, targeted "
+                                "queries to fill the gaps. The research executor "
+                                "will handle them and report back.\n\n"
+                                "Think carefully — if you have ~80% of what you "
+                                "need, synthesize now rather than searching more."
                             ),
                             additional_kwargs={"__synthetic__": True},
                         )
@@ -549,10 +636,16 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     ])
                     continue
 
-            elif self._had_tool_iterations and not self._synthesis_done:
-                # 80B produced text after tool work. Its response was an
-                # internal working draft — force one more iteration to
-                # produce a single, clean, consolidated answer for the user.
+            elif (
+                self._had_tool_iterations
+                and not self._synthesis_done
+                and self._research_cycle_count == 0
+            ):
+                # 80B produced text after tool work (coding/non-research routes).
+                # Its response was an internal working draft — force one more
+                # iteration to produce a single, clean, consolidated answer.
+                # Research routes skip this: the evaluation checkpoint handles
+                # synthesis — the 80B's response IS the final answer.
                 logger.info(
                     "Dual-model: tool work complete — forcing consolidated response"
                 )
@@ -629,6 +722,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         self._last_tool_names = [tu.name for tu in self._tool_use_queue]
         self._last_queue_had_error = False
         self._had_tool_iterations = True
+
+        # Count research tool calls for monitoring
+        self._search_call_count += sum(
+            1 for n in self._last_tool_names if n in RESEARCH_TOOLS
+        )
 
         await super()._process_tool_use_queue(context)
 
