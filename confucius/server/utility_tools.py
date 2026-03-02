@@ -76,28 +76,29 @@ class UtilityToolsExtension(ToolUseExtension):
             ant.Tool(
                 name="web_search",
                 description=(
-                    "Search the internet via SearXNG for CURRENT information. "
+                    "Search the internet via SearXNG for current information. "
                     "Use for: latest versions, release notes, documentation, "
                     "news, API references — anything time-sensitive.\n\n"
-                    "For DEEP RESEARCH, call this MULTIPLE TIMES IN PARALLEL "
-                    "with different queries and angles. Then use "
-                    "fetch_url_content to read full pages from the best "
-                    "results.\n\n"
+                    "Form a SHORT, SPECIFIC query (3-6 keywords). Bad: "
+                    "'what is the latest version of vLLM llm inference engine' "
+                    "— Good: 'vLLM 0.8 release notes' or 'vLLM latest version'.\n\n"
                     "Query syntax: 'site:github.com <query>', "
                     "'\"exact phrase\"', '-exclude_word'\n\n"
                     "Tips:\n"
                     "- Use categories=\"it\" for programming/tech topics\n"
                     "- Use time_range=\"week\" for very recent results\n"
                     "- Use engines=\"github\" to search only GitHub\n"
-                    "- Call MULTIPLE web_search in ONE response for "
-                    "parallel research"
+                    "- Stop after 2-3 searches — synthesize what you have"
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query",
+                            "description": (
+                                "Short, specific search query — 3 to 6 keywords. "
+                                "Do NOT write a full sentence or question."
+                            ),
                         },
                         "n_results": {
                             "type": "integer",
@@ -219,6 +220,7 @@ class UtilityToolsExtension(ToolUseExtension):
             return json.dumps({"error": "query is required"})
 
         n_results = min(inp.get("n_results", 5), 10)
+        logger.info("web_search: query=%r n_results=%d", query, n_results)
         categories = inp.get("categories", "general")
         time_range = inp.get("time_range")
         engines = inp.get("engines")
