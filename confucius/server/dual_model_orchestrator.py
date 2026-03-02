@@ -478,10 +478,25 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 else:
                     logger.info(
                         "Dual-model: 8B research complete (cycle %d/%d) "
-                        "— forcing 80B synthesis",
+                        "— injecting synthesis handoff for 80B",
                         self._research_cycle_count,
                         MAX_RESEARCH_CYCLES,
                     )
+                    # Critical: tell 80B to STOP searching and synthesize.
+                    # Without this, 80B sees the search results and decides
+                    # to call web_search again, restarting the research cycle.
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "Research is complete. Using the information "
+                                "gathered above, write your final answer now. "
+                                "Do NOT call web_search, fetch_url_content, "
+                                "search_codebase, or other lookup tools."
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
                 continue
 
             elif (
