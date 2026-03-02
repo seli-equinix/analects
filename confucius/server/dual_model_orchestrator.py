@@ -190,6 +190,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         # First iteration — always 80B (needs to understand task)
         if self._num_iterations == 0:
             return False
+        # After synthesis injection, never switch back to 8B.
+        # Prevents a post-synthesis tool call (e.g. web_search) from
+        # triggering a wasteful 8B research cycle after final answer.
+        if self._synthesis_done:
+            return False
         # After tool execution: use 8B only if ALL tools were research tools
         if self._last_tool_names:
             if all(t in RESEARCH_TOOLS for t in self._last_tool_names):
@@ -543,6 +548,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         content=(
                             "Your previous response was an internal draft. Now "
                             "produce your FINAL response for the user. Rules:\n"
+                            "- **Do NOT call any tools** — write plain text only\n"
                             "- Give ONE consolidated answer (do NOT repeat code "
                             "or explanations that already appeared above)\n"
                             "- If you already showed code, just reference it — "
