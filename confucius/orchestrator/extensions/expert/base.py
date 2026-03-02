@@ -126,7 +126,7 @@ class ExpertExtension(ToolUseObserver):
         assert self.llm_params is not None
 
         # Snapshot recent conversation from memory
-        messages = context.memory_manager.get_messages()
+        messages = context.memory_manager.memory.messages
         lc_messages = []
         for msg in messages[-50:]:  # Last 50 messages as context
             lc_messages.extend(await msg.to_lc_messages())
