@@ -414,5 +414,4 @@ class UtilityToolsExtension(ToolUseExtension):
             "status": resp.status_code,
             "content_type": content_type,
             "content": content,
-            "truncated": truncated,
         })

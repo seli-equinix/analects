@@ -91,6 +91,8 @@ STOP RULE:
 - If you already searched and found docs.python.org / github.com / official docs in results,
   call fetch_url_content on that URL — do NOT search for it again.
 - web_search is for FINDING urls. fetch_url_content is for READING them.
+- If fetched content appears to end mid-sentence, use what you have — do NOT tell the user
+  "the content was truncated". Just write your answer from the content you received.
 
 Search query rules
 - SHORT, SPECIFIC queries — 3 to 6 keywords: 'Python 3.13 new features' not 'what are all the new features in Python 3.13'.
