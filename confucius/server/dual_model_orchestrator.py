@@ -69,6 +69,16 @@ ERROR_STOP_THRESHOLD = 5
 # it stuck. 2 means: first time is fine, second identical output = stalled.
 STALL_REPEAT_THRESHOLD = 2
 
+# Max consecutive 8B research iterations before forcing 80B synthesis.
+# Prevents the 8B from looping through web_search indefinitely when
+# results vary slightly (evading the hash-based stall detector).
+MAX_CONSECUTIVE_8B_RESEARCH = 5
+
+# Max 8B→80B research cycles before forcing a final answer.
+# Each cycle = 8B does research → 80B synthesizes → 80B calls more tools → repeat.
+# After this many cycles, a "stop researching" message is injected.
+MAX_RESEARCH_CYCLES = 3
+
 # Tools that only READ data — safe for the 8B to orchestrate.
 # Any tool NOT in this set triggers 80B on the next iteration.
 RESEARCH_TOOLS = frozenset({
@@ -132,6 +142,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     _requires_tool_use: bool = PrivateAttr(default=True)
     # Tracking flag for monitoring: was the tool nudge skipped?
     _nudge_skipped: bool = PrivateAttr(default=False)
+    # Research depth limiting: count consecutive 8B iterations and total cycles
+    _consecutive_8b_iters: int = PrivateAttr(default=0)
+    _research_cycle_count: int = PrivateAttr(default=0)
 
     # ── Model selection ──────────────────────────────────────────
 
@@ -187,9 +200,22 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         "— forcing 80B synthesis",
                         self._repeated_context_count,
                     )
+                    self._consecutive_8b_iters = 0
+                    return False
+                # Depth cap: prevent endless research loops (evades stall detection
+                # when results vary slightly between searches)
+                self._consecutive_8b_iters += 1
+                if self._consecutive_8b_iters > MAX_CONSECUTIVE_8B_RESEARCH:
+                    logger.info(
+                        "Dual-model: 8B research depth limit (%d consecutive) "
+                        "— forcing 80B synthesis",
+                        self._consecutive_8b_iters,
+                    )
+                    self._consecutive_8b_iters = 0
                     return False
                 return True
-        # No tools in last iteration (final synthesis) — 80B
+        # Non-research tools or no tools → 80B; reset consecutive counter
+        self._consecutive_8b_iters = 0
         return False
 
     async def get_llm_params(self) -> LLMParams:
@@ -417,13 +443,40 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
 
             elif self._using_fast_model:
                 # 8B finished research (no more tools) → force 80B synthesis.
-                # Reset stall detection so 80B can delegate back to 8B.
-                logger.info(
-                    "Dual-model: 8B research complete — forcing 80B synthesis"
-                )
+                self._research_cycle_count += 1
+                self._consecutive_8b_iters = 0
                 self._last_tool_names = []
                 self._repeated_context_count = 0
                 self._last_fast_context_hash = 0
+
+                if self._research_cycle_count >= MAX_RESEARCH_CYCLES:
+                    # Too many research cycles — inject final synthesis prompt
+                    # and prevent more 8B research so we don't loop forever.
+                    logger.info(
+                        "Dual-model: research cycle limit (%d cycles) "
+                        "— injecting stop message, forcing final synthesis",
+                        self._research_cycle_count,
+                    )
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "You have done sufficient research across multiple "
+                                "rounds. Write your final answer NOW using only "
+                                "the information already gathered. "
+                                "Do NOT call any more search tools."
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    self._force_primary = True  # No more 8B after this
+                else:
+                    logger.info(
+                        "Dual-model: 8B research complete (cycle %d/%d) "
+                        "— forcing 80B synthesis",
+                        self._research_cycle_count,
+                        MAX_RESEARCH_CYCLES,
+                    )
                 continue
 
             elif (
