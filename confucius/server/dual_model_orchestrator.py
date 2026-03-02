@@ -483,8 +483,8 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     ])
                     self._error_hint_injected = True
 
-                # Research Brief Protocol: inject executor context to 8B on first
-                # research delegation. This tells the 8B its role before it runs.
+                # Research Brief Protocol: inject research assistant context on first
+                # delegation. Tells the research model its role before it runs.
                 if (
                     not self._research_executor_injected
                     and self._last_tool_names
@@ -494,7 +494,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         CfMessage(
                             type=cf.MessageType.HUMAN,
                             content=(
-                                "You are now the research executor. The planning "
+                                "You are now the research assistant. The planning "
                                 "model above has kicked off search tasks. Your job:\n"
                                 "1. Review the search results above thoroughly\n"
                                 "2. For highly relevant results, use "
@@ -515,7 +515,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     ])
                     self._research_executor_injected = True
                     logger.info(
-                        "Dual-model: research executor context injected "
+                        "Dual-model: research assistant context injected "
                         "(first delegation, %d tools: %s)",
                         len(self._last_tool_names),
                         self._last_tool_names,

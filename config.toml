@@ -7,12 +7,14 @@
 openai_model_prefixes = ["qwen", "/models/"]
 
 [active]
-coder = "local"           # "cloud" = Azure GPT-5.2, "local" = Spark2 Qwen3-80B
-note_taker = "local"      # "cloud" = Bedrock Claude Sonnet, "local" = Spark1 Qwen3-8B
-tool_orchestrator = "local" # 8B model for research tool iterations (dual-model orchestrator)
-planner = "local"         # optional — comment out to use hardcoded default
-reviewer = "local"        # optional — comment out to disable code review expert
-tester = "local"          # optional — comment out to disable test generator expert
+coder = "local"             # "cloud" = Azure GPT-5.2, "local" = Spark2 Qwen3-35B
+note_taker = "local"        # "cloud" = Bedrock Claude Sonnet, "local" = Spark1 Qwen3-8B
+tool_orchestrator = "local" # 8B model for research tool iterations (CODER/INFRA routes)
+planner = "local"           # optional — comment out to use hardcoded default
+reviewer = "local"          # optional — comment out to disable code review expert
+tester = "local"            # optional — comment out to disable test generator expert
+search = "local"            # 35B primary for SEARCH route (plans + evaluates + synthesizes)
+search_researcher = "local" # 35B researcher for SEARCH tool iterations (reads results, writes brief)
 
 # ──────────────────────────────────────────────
 # CLOUD PROVIDERS (original upstream defaults)
@@ -120,6 +122,33 @@ api_key_env = "OPENAI_API_KEY"
 initial_max_tokens = 4096
 max_tokens = 8192
 temperature = 0.3
+
+[providers.local.search]
+# Primary for SEARCH route: plans what to search, evaluates research brief, synthesizes final answer.
+# Lower temperature for focused, factual synthesis.
+model = "/models/Qwen3.5-35B-A3B-FP8"
+provider = "openai"
+base_url = "http://192.168.4.208:8000/v1"
+api_key_env = "OPENAI_API_KEY"
+initial_max_tokens = 8192
+max_tokens = 16384
+temperature = 0.2
+cost_per_1m_input = 0.0
+cost_per_1m_output = 0.0
+
+[providers.local.search_researcher]
+# Research executor for SEARCH route: reads search results, fetches pages, writes Research Brief.
+# Slightly higher temperature for thorough, exploratory research. Same 35B model as search.
+# Future: point this at a dedicated larger model on new hardware without touching other profiles.
+model = "/models/Qwen3.5-35B-A3B-FP8"
+provider = "openai"
+base_url = "http://192.168.4.208:8000/v1"
+api_key_env = "OPENAI_API_KEY"
+initial_max_tokens = 4096
+max_tokens = 8192
+temperature = 0.3
+cost_per_1m_input = 0.0
+cost_per_1m_output = 0.0
 
 # ──────────────────────────────────────────────
 # EXPERT ROUTER (Functionary on node5)
