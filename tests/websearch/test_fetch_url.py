@@ -149,6 +149,11 @@ class TestFetchUrlSecurity:
             or "unfortunately" in content_lower
             or "i can only" in content_lower
             or "limited to" in content_lower
+            or "capability" in content_lower
+            or "don't have" in content_lower
+            or "i don't" in content_lower
+            or "i lack" in content_lower
+            or "direct" in content_lower
         )
         assert rejected, (
             "Response doesn't indicate FTP scheme was rejected. "

@@ -142,6 +142,11 @@ class CCAClient:
         read_timeout = idle_timeout or self.idle_timeout
         max_attempts = 2  # 1 try + 1 retry for transient errors
 
+        # Capture the parent (test) span BEFORE starting the cca.chat child span.
+        # Inside the child span, trace.get_current_span() returns the child,
+        # not the test span — so we must save the reference here.
+        test_span = trace.get_current_span()
+
         with self.tracer.start_as_current_span("cca.chat") as span:
             span.set_attribute("openinference.span.kind", "CHAIN")
             span.set_attribute("input.value", message[:500])
@@ -204,10 +209,12 @@ class CCAClient:
                         span.set_attribute("cca.user_identified", True)
                         span.set_attribute("cca.user_name", result.user_name or "")
 
-                    # Stash metrics on parent span for per-test reporting
-                    parent_span = trace.get_current_span()
-                    if hasattr(parent_span, "_test_metrics"):
-                        parent_span._test_metrics.update({
+                    # Stash metrics on test (parent) span for per-test reporting.
+                    # test_span was captured before the child cca.chat span was
+                    # started — trace.get_current_span() here would return the
+                    # child span, not the test span.
+                    if hasattr(test_span, "_test_metrics"):
+                        test_span._test_metrics.update({
                             "tool_iterations": result.metadata.get("tool_iterations", 0),
                             "route": result.metadata.get("route", ""),
                             "estimated_steps": result.metadata.get("estimated_steps", 0),

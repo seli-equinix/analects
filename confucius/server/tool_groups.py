@@ -136,10 +136,21 @@ def get_max_iterations(route: RouteDecision) -> int:
     over-iteration on one-liners and short functions.
     Formula: max(base, min(estimated_steps * 2, 200)).
     The base per-route value acts as a floor for that route type.
+
+    SEARCH route is exempt from the simple cap: even a "simple" search
+    needs planning + N research iterations (8B) + synthesis + final
+    response (80B) = N+3 iterations minimum.  With cap=8 and N>=5, the
+    orchestrator hits MaxIterationsReachedError before 80B synthesis can
+    run, producing 0-char responses.
     """
+    base = _BASE_MAX_ITERATIONS.get(route.expert, 20)
+    if route.expert == ExpertType.SEARCH:
+        # Never apply simple cap to SEARCH — research + synthesis need room.
+        # Use estimated_steps * 3 (research is multi-step) but floor at base.
+        from_steps = route.estimated_steps * 3
+        return max(base, min(from_steps, 200))
     if route.is_simple:  # estimated_steps <= 3
         return _SIMPLE_MAX_ITERATIONS
-    base = _BASE_MAX_ITERATIONS.get(route.expert, 20)
     from_steps = route.estimated_steps * 2
     return max(base, min(from_steps, 200))
 

@@ -151,10 +151,13 @@ The user introduced themselves as **{extracted_name}**. This is a NEW user
 **You MUST call `identify_user` with name="{extracted_name}" BEFORE doing
 anything else.** This creates their profile so you can remember them.
 
-After identification, IMMEDIATELY use these tools:
-- **remember_user_fact** to save any facts they shared (employer, role, tech stack, etc.)
-- **remember_user_fact** with key="skill", value="Python" for each technical skill mentioned
-- **remember_user_fact** with key="alias", value="nickname" for any nicknames or alternate names
+After identification, IMMEDIATELY call remember_user_fact for every fact shared:
+- Employer/company → key="employer", value="Acme Corp"
+- Job title/role → key="role", value="DevOps engineer"
+- Tech/skills → key="skill", value="Kubernetes" (one call per skill)
+- Nickname/alias → key="alias", value="seli"
+
+Do NOT wait to save facts — call remember_user_fact right after identify_user.
 
 Then proceed to answer their question naturally.
 """
@@ -202,10 +205,13 @@ You have exactly 6 tools:
 
 ## Rules
 
-1. **Call tools immediately** — don't narrate what you're about to do, just do it.
+1. **Call tools immediately** — NEVER narrate what you're about to do; just do it.
+   - WRONG: "Sure, I'll delete your profile now." ← then no tool call
+   - RIGHT: Call `manage_user_profile(action="delete_profile", confirm_delete=true)` directly
 2. **One tool call per action** — don't chain unnecessary calls.
-3. **Deletions**: When user asks to delete their profile, ALWAYS pass \
-`confirm_delete=true` to `manage_user_profile(action="delete_profile")`.
+3. **Deletions**: When user says "delete", "forget me", "remove my data", or similar,
+   you MUST call `manage_user_profile(action="delete_profile", confirm_delete=true)`.
+   Do NOT respond with "Done!" or "Deleted!" without actually calling the tool.
 4. **New users**: If someone introduces themselves, call `identify_user` first, \
 then `remember_user_fact` for any facts they shared.
 5. **Fact updates**: If user says "I switched jobs to X", call \

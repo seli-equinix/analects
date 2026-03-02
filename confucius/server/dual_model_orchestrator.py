@@ -126,6 +126,10 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     _error_hint_injected: bool = PrivateAttr(default=False)
     # Complexity hint from router — controls nudge behavior
     _estimated_steps: int = PrivateAttr(default=10)
+    # When True, this route REQUIRES tool use (CODER/INFRA).
+    # When False (USER/SEARCH), inline responses without tools are acceptable.
+    # Controls whether the smart nudge skips on is_simple tasks.
+    _requires_tool_use: bool = PrivateAttr(default=True)
     # Tracking flag for monitoring: was the tool nudge skipped?
     _nudge_skipped: bool = PrivateAttr(default=False)
 
@@ -430,15 +434,26 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 # Model described intent but didn't call tools on first turn.
                 # Qwen3 sometimes generates markdown code blocks instead of
                 # making tool calls.  Nudge it once to actually use tools —
-                # BUT skip the nudge if the model already gave code inline
-                # or the task is simple (estimated_steps <= 3).
+                # BUT skip if the route allows inline responses AND the model
+                # either already gave code or the task is simple.
+                #
+                # Route awareness:
+                # - CODER/INFRA/USER (_requires_tool_use=True): skip only if
+                #   has_code (model gave a usable inline answer with real code).
+                #   "is_simple" alone is not enough — these routes should call
+                #   tools even for short tasks (file edits, profile deletions).
+                # - SEARCH (_requires_tool_use=False): skip if has_code
+                #   OR is_simple (inline answers are fine for informational
+                #   queries; research tools are run by the 8B automatically).
                 self._tool_nudge_done = True
                 has_code = self._last_assistant_has_code(context)
                 is_simple = self._estimated_steps <= 3
-                if has_code or is_simple:
+                if has_code or (is_simple and not self._requires_tool_use):
                     logger.info(
                         "Dual-model: skipping tool nudge — %s",
-                        "response has code" if has_code else "simple task",
+                        "response has code"
+                        if has_code
+                        else "simple task (non-creation route)",
                     )
                     self._nudge_skipped = True
                     # Fall through to completion branch (don't continue)
@@ -452,9 +467,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         CfMessage(
                             type=cf.MessageType.HUMAN,
                             content=(
-                                "You have bash and file editing tools available. "
-                                "Don't just describe what you'll do — use the tools "
-                                "to actually execute the code. Start now."
+                                "You have tools available to perform this action. "
+                                "Don't just describe what you'll do — call the "
+                                "appropriate tool to actually execute it now."
                             ),
                             additional_kwargs={"__synthetic__": True},
                         )

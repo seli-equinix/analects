@@ -187,30 +187,35 @@ class HttpRoutedEntry(Analect[EntryInput, EntryOutput], EntryAnalectMixin):
             pass  # Falls back to 80B for all iterations
         # Pass router complexity estimate to orchestrator (controls nudge behavior)
         orchestrator._estimated_steps = self._route.estimated_steps
+        # SEARCH allows inline responses (informational queries have no side effects).
+        # CODER/INFRA/USER all require tool use — nudge fires when no tools called
+        # and model just describes actions instead of executing them.
+        orchestrator._requires_tool_use = expert != ExpertType.SEARCH
 
-        await context.invoke_analect(
-            orchestrator,
-            OrchestratorInput(
-                messages=[
-                    CfMessage(
-                        type=cf.MessageType.HUMAN,
-                        content=inp.question,
-                        attachments=inp.attachments,
-                    )
-                ],
-                task=task_def,
-            ),
-        )
-
-        # Capture orchestrator metrics for context_metadata
-        # _num_iterations counts LLM round-trips; subtract 1 for the final
-        # text-only response to get the number of tool-calling iterations.
-        iters = orchestrator._num_iterations
-        self._tool_iterations = max(0, iters - 1) if iters > 0 else 0
-        self._nudge_skipped = orchestrator._nudge_skipped
-        self._circuit_breaker_fired = (
-            orchestrator._error_hint_injected
-            or orchestrator._total_consecutive_errors > 0
-        )
+        try:
+            await context.invoke_analect(
+                orchestrator,
+                OrchestratorInput(
+                    messages=[
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=inp.question,
+                            attachments=inp.attachments,
+                        )
+                    ],
+                    task=task_def,
+                ),
+            )
+        finally:
+            # Always capture orchestrator metrics even if an exception is raised
+            # (e.g. MaxIterationsReachedError).  Without finally, the metadata
+            # callback reads _tool_iterations=0 on the exception path.
+            iters = orchestrator._num_iterations
+            self._tool_iterations = max(0, iters - 1) if iters > 0 else 0
+            self._nudge_skipped = orchestrator._nudge_skipped
+            self._circuit_breaker_fired = (
+                orchestrator._error_hint_injected
+                or orchestrator._total_consecutive_errors > 0
+            )
 
         return EntryOutput()
