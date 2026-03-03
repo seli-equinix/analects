@@ -77,13 +77,20 @@ CRITICAL — understand your two search tools before starting:
   need the full text of an official page (e.g. release notes, documentation, changelog).
 
 Your workflow — complete in 3 steps maximum:
-1. Call `web_search` 3-4 times IN ONE RESPONSE, in parallel. Each query must cover a DIFFERENT FACET:
-   - Official docs / spec  →  "Python 3.13 whatsnew"
-   - Specific sub-topic    →  "Python 3.13 JIT compiler free-threading"
-   - Release / changelog   →  "Python 3.13 release date changelog"
-   - Community summary     →  "Python 3.13 highlights blog"
-   ❌ WRONG: "Python 3.13 new features" + "Python 3.13 features list" + "Python 3.13 new features release"
-      (these are all the SAME query rephrased — SearXNG returns near-identical results)
+1. Call `web_search` 3-4 times IN ONE RESPONSE, in parallel. Each query must cover a DIFFERENT FACET
+   of the topic. The four standard facets (adapt to whatever is being asked):
+   - Official docs / spec  →  "{topic} whatsnew"  or  "{topic} documentation"
+   - Release / changelog   →  "{topic} release notes changelog"
+   - Specific sub-feature  →  "{topic} {specific_feature}" (pick the most interesting feature)
+   - Community summary     →  "{topic} highlights blog {year}"
+
+   Examples — same principle, different technology:
+   Python 3.13:  "Python 3.13 whatsnew"  |  "Python 3.13 changelog"  |  "Python 3.13 JIT free-threading"  |  "Python 3.13 blog 2024"
+   Rust latest:  "Rust release notes"    |  "Rust 1.x changelog"     |  "Rust async stabilized features"   |  "Rust edition 2024 blog"
+   PowerShell:   "PowerShell 7 whatsnew" |  "PowerShell release"     |  "PowerShell remoting cmdlets"       |  "PowerShell 7 blog"
+
+   ❌ WRONG: "Rust new features" + "Rust latest features" + "Rust features list"
+      (these are all the SAME query rephrased — SearXNG returns near-identical results for all three)
    ✅ RIGHT: each query targets a different aspect so results complement, not duplicate, each other.
 2. Call `fetch_url_content` on 1-2 of the most authoritative URLs found in step 1.
    Purpose: get full content to base your answer on.
