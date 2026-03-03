@@ -141,25 +141,48 @@ def trace_test(request, phoenix_tracer):
 
         yield span
 
-        # Set input.value / output.value from accumulated chat turns.
-        # Done here (after yield) so ALL turns are collected before we write.
-        # Single-turn: plain message / response.
-        # Multi-turn: labeled turns in each field so Turn N input pairs with
-        # Turn N output when reading them side by side.
+        # Set I/O attributes from accumulated chat turns (done after yield so
+        # ALL turns are collected before we write).
+        # Single-turn: input.value / output.value as plain text (CHAIN span).
+        # Multi-turn: llm.input_messages / llm.output_messages so Phoenix
+        # renders each turn as its own independent message block (LLM span).
         turns = span._test_metrics.get("_turns", [])
         if turns:
             if len(turns) == 1:
                 span.set_attribute("input.value", turns[0][0][:1000])
                 span.set_attribute("output.value", turns[0][1][:1000])
             else:
-                span.set_attribute("input.value", "\n\n".join(
-                    f"[Turn {i + 1}] {m[:400]}"
-                    for i, (m, _) in enumerate(turns)
-                )[:2000])
-                span.set_attribute("output.value", "\n\n".join(
-                    f"[Turn {i + 1}] {r[:400]}"
-                    for i, (_, r) in enumerate(turns)
-                )[:2000])
+                # Switch span kind to LLM so Phoenix uses the chat/conversation
+                # renderer — each message becomes an independent block.
+                span.set_attribute("openinference.span.kind", "LLM")
+                idx = 0
+                for i, (msg, resp) in enumerate(turns):
+                    span.set_attribute(
+                        f"llm.input_messages.{idx}.message.role", "user"
+                    )
+                    span.set_attribute(
+                        f"llm.input_messages.{idx}.message.content",
+                        f"[Turn {i + 1}] {msg[:800]}",
+                    )
+                    idx += 1
+                    if i < len(turns) - 1:
+                        # Intermediate assistant responses go into input context
+                        span.set_attribute(
+                            f"llm.input_messages.{idx}.message.role", "assistant"
+                        )
+                        span.set_attribute(
+                            f"llm.input_messages.{idx}.message.content",
+                            f"[Turn {i + 1}] {resp[:800]}",
+                        )
+                        idx += 1
+                # Final assistant response is the output
+                span.set_attribute(
+                    "llm.output_messages.0.message.role", "assistant"
+                )
+                span.set_attribute(
+                    "llm.output_messages.0.message.content",
+                    f"[Turn {len(turns)}] {turns[-1][1][:1000]}",
+                )
 
         if hasattr(request.node, "rep_call"):
             rep = request.node.rep_call
