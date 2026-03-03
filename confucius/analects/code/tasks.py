@@ -77,24 +77,28 @@ CRITICAL — understand your two search tools before starting:
   need the full text of an official page (e.g. release notes, documentation, changelog).
 
 Your workflow — complete in 3 steps maximum:
-1. Call `web_search` 3-5 times IN ONE RESPONSE, in parallel, covering different angles.
-   Purpose: find the best URLs and get an overview. Do NOT aim for complete answers from snippets.
+1. Call `web_search` 3-4 times IN ONE RESPONSE, in parallel. Each query must cover a DIFFERENT FACET:
+   - Official docs / spec  →  "Python 3.13 whatsnew"
+   - Specific sub-topic    →  "Python 3.13 JIT compiler free-threading"
+   - Release / changelog   →  "Python 3.13 release date changelog"
+   - Community summary     →  "Python 3.13 highlights blog"
+   ❌ WRONG: "Python 3.13 new features" + "Python 3.13 features list" + "Python 3.13 new features release"
+      (these are all the SAME query rephrased — SearXNG returns near-identical results)
+   ✅ RIGHT: each query targets a different aspect so results complement, not duplicate, each other.
 2. Call `fetch_url_content` on 1-2 of the most authoritative URLs found in step 1.
    Purpose: get full content to base your answer on.
 3. Write your complete, cited final answer using the full-page content from step 2.
 
 STOP RULE:
 - After steps 1-3, you are done. Do NOT call web_search again.
-- If you already searched and found docs.python.org / github.com / official docs in results,
-  call fetch_url_content on that URL — do NOT search for it again.
+- If you already found docs.python.org / github.com / official docs in step 1, go directly to fetch_url_content — do NOT search for the same thing again.
 - web_search is for FINDING urls. fetch_url_content is for READING them.
-- If fetched content appears to end mid-sentence, use what you have — do NOT tell the user
-  "the content was truncated". Just write your answer from the content you received.
+- If fetched content appears to end mid-sentence, use what you have — do NOT tell the user "the content was truncated". Just write your answer.
 
 Search query rules
-- SHORT, SPECIFIC queries — 3 to 6 keywords: 'Python 3.13 new features' not 'what are all the new features in Python 3.13'.
-- Cover DIFFERENT angles — do not repeat or rephrase the same query.
-- Use time_range="week" for very recent news only. Do NOT set categories — the backend selects them automatically based on your query.
+- SHORT, SPECIFIC queries — 3 to 6 keywords maximum.
+- Each query must target a different FACET (docs, changelog, specific feature, community reaction).
+- Use time_range="week" for very recent news only. Do NOT set categories — the backend selects them automatically.
 - Include source URLs in your final answer.
 """
 
