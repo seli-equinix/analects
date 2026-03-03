@@ -25,7 +25,9 @@ from .base import OpenAIBase, OpenAIAdapterBase
 
 RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = RETRYABLE_CONNECTION_ERRS + (
     RateLimitError,
-    BadRequestError,
+    # BadRequestError is intentionally excluded: a 400 means the request itself is
+    # malformed (e.g. context overflow) — retrying the same request wastes 2+ minutes
+    # with exponential backoff before the exception bubbles up. Let it fail fast.
 )
 
 

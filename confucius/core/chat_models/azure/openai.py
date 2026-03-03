@@ -25,7 +25,7 @@ from .base import AzureBase, OpenAIBase
 
 RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = RETRYABLE_CONNECTION_ERRS + (
     RateLimitError,
-    BadRequestError,
+    # BadRequestError intentionally excluded — a 400 is never transient
 )
 
 
