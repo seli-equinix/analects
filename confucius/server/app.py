@@ -415,9 +415,10 @@ async def _handle_chat_completions(
 
     if router_config.enabled and user_message:
         try:
-            # Build recent context for follow-up awareness
+            # Build recent context for follow-up awareness (exclude last message —
+            # that's the current user message, appended explicitly in classify_request)
             recent: List[Dict[str, str]] = []
-            for msg in request.messages[-4:]:
+            for msg in request.messages[-4:-1]:
                 if msg.role in ("user", "assistant") and msg.content:
                     recent.append({"role": msg.role, "content": msg.content[:500]})
 
