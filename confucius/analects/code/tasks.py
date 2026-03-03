@@ -97,7 +97,8 @@ STOP RULE:
 Search query rules
 - SHORT, SPECIFIC queries — 3 to 6 keywords: 'Python 3.13 new features' not 'what are all the new features in Python 3.13'.
 - Cover DIFFERENT angles — do not repeat or rephrase the same query.
-- Use categories="it" for programming/tech topics, time_range="week" for very recent news.
+- Do NOT set categories — leave it unset so general engines (Google/DDG/Bing) are used. The "it" category uses niche engines that return irrelevant results for programming queries.
+- Use time_range="week" for very recent news only.
 - Include source URLs in your final answer.
 """
 
