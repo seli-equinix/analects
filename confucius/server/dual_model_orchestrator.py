@@ -152,6 +152,10 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     _research_brief: str = PrivateAttr(default="")          # 8B's latest research text
     _research_executor_injected: bool = PrivateAttr(default=False)  # executor context sent once
     _search_call_count: int = PrivateAttr(default=0)        # total research tool calls made
+    # Duplication guard: True when the primary (80B) already streamed text
+    # containing code alongside a tool call.  If set, synthesis must be
+    # skipped — otherwise the 80B rewrites its entire response a second time.
+    _primary_streamed_code: bool = PrivateAttr(default=False)
 
     # ── Model selection ──────────────────────────────────────────
 
@@ -350,6 +354,14 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 context.memory_manager.add_messages([
                     CfMessage(type=cf.MessageType.AI, content=text)
                 ])
+        else:
+            # Primary (80B) is writing text — check if it contains code.
+            # If it does AND it also makes tool calls in the same turn,
+            # synthesis must be skipped to prevent duplicate output.
+            if text.strip() and not self._primary_streamed_code:
+                code_signals = ["```", "def ", "class ", "import ", "return "]
+                if any(s in text for s in code_signals):
+                    self._primary_streamed_code = True
 
                 # Capture as research brief for the 80B evaluation checkpoint
                 self._research_brief = text
@@ -691,36 +703,45 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 and self._requires_tool_use
             ):
                 # 80B produced text after tool work (coding/non-research routes).
-                # Its response was an internal working draft — force one more
-                # iteration to produce a single, clean, consolidated answer.
-                # Research routes skip this: the evaluation checkpoint handles
-                # synthesis — the 80B's response IS the final answer.
-                # SEARCH (_requires_tool_use=False): 35B writes its answer
-                # directly after web_search — no extra synthesis iteration.
-                logger.info(
-                    "Dual-model: tool work complete — forcing consolidated response"
-                )
-                self._synthesis_done = True
-                context.memory_manager.add_messages([
-                    CfMessage(
-                        type=cf.MessageType.HUMAN,
-                        content=(
-                            "Your previous response was an internal draft. Now "
-                            "produce your FINAL response for the user. Rules:\n"
-                            "- **Do NOT call any tools** — write plain text only\n"
-                            "- Give ONE consolidated answer (do NOT repeat code "
-                            "or explanations that already appeared above)\n"
-                            "- If you already showed code, just reference it — "
-                            "don't show it again\n"
-                            "- Keep it concise: what was done, what the result "
-                            "was, and any next steps\n"
-                            "- Do NOT start with 'Summary of Accomplishments' "
-                            "or similar headings"
-                        ),
-                        additional_kwargs={"__synthetic__": True},
+                # Normally its response was an internal working draft — force one
+                # more iteration to produce a single, clean, consolidated answer.
+                #
+                # Exception: if the primary (80B) already streamed text WITH CODE
+                # alongside a lightweight tool call (e.g. remember_user_fact),
+                # synthesis would make it rewrite the exact same response a second
+                # time. Skip synthesis in that case — the streamed response is
+                # already the complete, correct answer.
+                if self._primary_streamed_code:
+                    logger.info(
+                        "Dual-model: skipping synthesis — primary already "
+                        "streamed a code response (would duplicate output)"
                     )
-                ])
-                continue
+                    # Fall through to the completion branch below (no continue)
+                else:
+                    logger.info(
+                        "Dual-model: tool work complete — forcing consolidated response"
+                    )
+                    self._synthesis_done = True
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                "Your previous response was an internal draft. Now "
+                                "produce your FINAL response for the user. Rules:\n"
+                                "- **Do NOT call any tools** — write plain text only\n"
+                                "- Give ONE consolidated answer (do NOT repeat code "
+                                "or explanations that already appeared above)\n"
+                                "- If you already showed code, just reference it — "
+                                "don't show it again\n"
+                                "- Keep it concise: what was done, what the result "
+                                "was, and any next steps\n"
+                                "- Do NOT start with 'Summary of Accomplishments' "
+                                "or similar headings"
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    continue
 
             else:
                 # 80B finished — normal end, run extension hooks
