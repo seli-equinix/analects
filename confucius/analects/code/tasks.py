@@ -79,10 +79,10 @@ CRITICAL — understand your two search tools before starting:
 Your workflow — complete in 3 steps maximum:
 1. Call `web_search` 3-4 times IN ONE RESPONSE, in parallel. Each query must cover a DIFFERENT FACET
    of the topic. The four standard facets (adapt to whatever is being asked):
-   - Official docs / spec  →  "{topic} whatsnew"  or  "{topic} documentation"
-   - Release / changelog   →  "{topic} release notes changelog"
-   - Specific sub-feature  →  "{topic} {specific_feature}" (pick the most interesting feature)
-   - Community summary     →  "{topic} highlights blog {year}"
+   - Official docs / spec  →  "<topic> whatsnew"  or  "<topic> documentation"
+   - Release / changelog   →  "<topic> release notes changelog"
+   - Specific sub-feature  →  "<topic> <specific_feature>" (pick the most interesting feature)
+   - Community summary     →  "<topic> highlights blog <year>"
 
    Examples — same principle, different technology:
    Python 3.13:  "Python 3.13 whatsnew"  |  "Python 3.13 changelog"  |  "Python 3.13 JIT free-threading"  |  "Python 3.13 blog 2024"
