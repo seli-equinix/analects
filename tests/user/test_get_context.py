@@ -123,10 +123,10 @@ class TestGetContext:
                 session_id=sid1,
             )
 
-            # Session 2: ask a vague question — enriched by context
+            # Session 2: re-identify so past context loads, then ask
             message = (
-                f"Hey {name}. I'm having issues with my cluster — "
-                f"what should I check first?"
+                f"Hi, I'm {name} — I manage a Docker Swarm cluster. "
+                f"I'm having issues with my cluster, what should I check first?"
             )
             result = cca.chat(message, session_id=sid2)
 

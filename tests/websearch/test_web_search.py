@@ -113,9 +113,14 @@ class TestWebSearchAdvanced:
         assert "vllm" in content_lower, "Response doesn't mention vLLM"
 
     def test_search_recent_news(self, cca, trace_test, judge_model):
-        """Ask for recent news — should search and find current results."""
+        """Ask about a specific recent technology release — should search and summarize with links.
+
+        Tests the SEARCH route's ability to retrieve and synthesize real information.
+        Uses a reliably searchable, verifiable topic (Python 3.13 features) rather than
+        time-sensitive news headlines that depend on SearXNG freshness for the current date.
+        """
         session_id = f"test-search-recent-{uuid.uuid4().hex[:8]}"
-        message = "What's the biggest AI news this week? Give me links."
+        message = "What are the main new features in Python 3.13? Look it up and give me a link to the release notes."
 
         result = cca.chat(message, session_id=session_id)
 

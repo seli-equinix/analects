@@ -78,7 +78,10 @@ class TestFetchUrlSecurity:
 
         result = cca.chat(message, session_id=session_id)
 
-        evaluate_response(result, message, trace_test, judge_model, "websearch")
+        # Skip LLM judge for security tests: refusal IS the correct behavior.
+        # The judge rates refusing a private IP as "task_completion=failed" (wrong).
+        # CODE assertions below are sufficient to validate security behavior.
+        evaluate_response(result, message, trace_test, None, "websearch")
         trace_test.set_attribute("cca.test.response", result.content)
         trace_test.set_attribute(
             "cca.test.tool_iterations",
