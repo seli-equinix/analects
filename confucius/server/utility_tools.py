@@ -44,6 +44,35 @@ def _simplify_query(query: str) -> str:
     return " ".join(words[:5])
 
 
+# Category auto-detection — determines which SearXNG engine pool to use.
+# The LLM must NOT pick categories: "it" returns Firefox for Python queries,
+# "science" misses Stack Overflow, etc. We detect intent from the query.
+_NEWS_PHRASES = frozenset({
+    "latest news", "breaking news", "news today", "this week news",
+    "current events", "what happened", "just announced", "just released",
+    "just launched",
+})
+_SCIENCE_PHRASES = frozenset({
+    "arxiv", "research paper", "scientific study", "published study",
+    "peer reviewed", "journal article", "preprint",
+})
+
+
+def _auto_category(query: str) -> str | None:
+    """Auto-detect the best SearXNG category from the query text.
+
+    Returns a category string to pass to SearXNG, or None for the default
+    general engines (Google/DuckDuckGo/Bing — best for most queries).
+    """
+    q = query.lower()
+    if any(phrase in q for phrase in _NEWS_PHRASES):
+        return "news"
+    if any(phrase in q for phrase in _SCIENCE_PHRASES):
+        return "science"
+    # Default: general covers programming, tech, docs, and everything else
+    return None
+
+
 class UtilityToolsExtension(ToolUseExtension):
     """CCA extension providing web search and URL fetching tools."""
 
@@ -96,12 +125,11 @@ class UtilityToolsExtension(ToolUseExtension):
                     "Query syntax: 'site:github.com <query>', "
                     "'\"exact phrase\"', '-exclude_word'\n\n"
                     "Tips:\n"
-                    "- Leave categories unset (default: general) — general uses Google/DDG/Bing "
-                    "which handle natural language well. 'it' category uses niche engines that "
-                    "often return irrelevant results for programming queries.\n"
                     "- Use time_range=\"week\" for very recent results\n"
                     "- Use engines=\"github\" to search only GitHub\n"
-                    "- Stop after 2-3 searches — synthesize what you have"
+                    "- Stop after 2-3 searches — synthesize what you have\n"
+                    "- Categories are selected automatically based on your query — "
+                    "do NOT pass a categories parameter"
                 ),
                 input_schema={
                     "type": "object",
@@ -117,13 +145,6 @@ class UtilityToolsExtension(ToolUseExtension):
                             "type": "integer",
                             "description": (
                                 "Number of results (1-10, default 5)"
-                            ),
-                        },
-                        "categories": {
-                            "type": "string",
-                            "description": (
-                                "Search category: general, it, science, "
-                                "files, social media, images, news"
                             ),
                         },
                         "time_range": {
@@ -245,12 +266,11 @@ class UtilityToolsExtension(ToolUseExtension):
     async def _handle_web_search(self, inp: dict[str, Any]) -> str:
         """Search via SearXNG with progressive fallback.
 
-        SearXNG's category-specific engines (it, science, etc.) often don't
-        support time_range filtering, returning 0 results silently. We handle
-        this with a retry cascade:
-          1. Original params
-          2. Drop time_range (most common failure cause)
-          3. Drop categories (fall back to general)
+        Category is auto-detected from the query by _auto_category() — the LLM
+        does not control it. Retry cascade on empty results:
+          1. Auto-detected category + original params
+          2. Drop time_range (category engines often don't support it)
+          3. Drop category (fall back to general Google/DDG/Bing)
           4. Simplified query (strip stopwords)
         """
         query = inp.get("query", "").strip()
@@ -258,11 +278,15 @@ class UtilityToolsExtension(ToolUseExtension):
             return json.dumps({"error": "query is required"})
 
         n_results = min(inp.get("n_results", 5), 10)
-        logger.info("web_search: query=%r n_results=%d", query, n_results)
-        categories = inp.get("categories", "general")
+        # Auto-detect category from query — LLM does not control this
+        category = _auto_category(query)
         time_range = inp.get("time_range")
         engines = inp.get("engines")
         language = inp.get("language", "en")
+        logger.info(
+            "web_search: query=%r n_results=%d category=%s",
+            query, n_results, category or "general",
+        )
 
         searxng_url = os.getenv(
             "SEARXNG_URL", "http://192.168.4.205:8888"
@@ -273,8 +297,8 @@ class UtilityToolsExtension(ToolUseExtension):
             "format": "json",
             "language": language,
         }
-        if categories != "general":
-            params["categories"] = categories
+        if category:
+            params["categories"] = category
         if time_range:
             params["time_range"] = time_range
         if engines:

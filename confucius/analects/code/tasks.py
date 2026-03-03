@@ -1,10 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
+"""Task prompt templates for CCA expert routes (coder and search)."""
 from __future__ import annotations
 
-from importlib.resources import files
-
-task_template = """
+TASK_TEMPLATE = """
 # Coding Assistant Task
 
 You are a coding assistant working inside a developer's repository.
@@ -57,13 +56,11 @@ Deliverables
 
 
 def get_task_definition(current_time: str) -> str:
-    """
-    Load the task template from the docs folder and substitute variables.
-    """
-    return task_template.format(current_time=current_time)
+    """Return the coding task prompt with the current time substituted."""
+    return TASK_TEMPLATE.format(current_time=current_time)
 
 
-search_task_template = """
+SEARCH_TASK_TEMPLATE = """
 # Web Research Task
 
 You are a web research expert. You search the internet to find current, accurate information and
@@ -76,7 +73,7 @@ Environment
 CRITICAL — understand your two search tools before starting:
 - `web_search`: returns 500-character SNIPPETS from multiple sites. Good for finding relevant URLs.
   Do NOT use web_search with `site:` operators hoping to get full content — you get the same snippets.
-- `fetch_url_content`: reads the FULL content of one specific URL (up to 50KB). Use this when you
+- `fetch_url_content`: reads the FULL content of one specific URL (up to 500KB). Use this when you
   need the full text of an official page (e.g. release notes, documentation, changelog).
 
 Your workflow — complete in 3 steps maximum:
@@ -97,12 +94,11 @@ STOP RULE:
 Search query rules
 - SHORT, SPECIFIC queries — 3 to 6 keywords: 'Python 3.13 new features' not 'what are all the new features in Python 3.13'.
 - Cover DIFFERENT angles — do not repeat or rephrase the same query.
-- Do NOT set categories — leave it unset so general engines (Google/DDG/Bing) are used. The "it" category uses niche engines that return irrelevant results for programming queries.
-- Use time_range="week" for very recent news only.
+- Use time_range="week" for very recent news only. Do NOT set categories — the backend selects them automatically based on your query.
 - Include source URLs in your final answer.
 """
 
 
 def get_search_task_definition(current_time: str) -> str:
     """Task definition for the SEARCH expert route."""
-    return search_task_template.format(current_time=current_time)
+    return SEARCH_TASK_TEMPLATE.format(current_time=current_time)
