@@ -37,8 +37,8 @@ services:
       # Phoenix observability (traces → Phoenix UI)
       - PHOENIX_COLLECTOR_ENDPOINT=http://192.168.4.204:4317
       - PHOENIX_PROJECT_NAME=cca-http
-      # Remove OTEL span attribute length limit so full LLM responses appear in Phoenix
-      - OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=0
+      # No OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT — OTel SDK default has no truncation.
+      # (Setting =0 truncates ALL string attributes to empty strings — never set it)
     # SECURITY: host networking is intentional — CCA's infra expert needs
     # direct access to Swarm nodes, Redis, Qdrant, Memgraph on the LAN.
     # Combined with docker.io and workspace :rw, the container has near-host
@@ -89,7 +89,6 @@ services:
       - MEMGRAPH_PORT=7687
       - PHOENIX_COLLECTOR_ENDPOINT=http://192.168.4.204:4317
       - PHOENIX_PROJECT_NAME=cca-dev
-      - OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=0
     network_mode: host
     entrypoint: ["confucius", "--port", "8500"]
     volumes:
