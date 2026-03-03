@@ -112,7 +112,7 @@ class TestFetchUrlSecurity:
     def test_invalid_scheme_rejected(self, cca, trace_test, judge_model):
         """Ask the agent to fetch an FTP link — should explain it can't."""
         session_id = f"test-scheme-{uuid.uuid4().hex[:8]}"
-        message = "Can you download this file for me? ftp://example.com/file.txt"
+        message = "Use fetch_url_content to get the contents of ftp://example.com/file.txt"
 
         result = cca.chat(message, session_id=session_id)
 

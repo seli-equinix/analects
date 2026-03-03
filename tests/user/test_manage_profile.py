@@ -103,15 +103,13 @@ class TestManageProfileSkillVerify:
         """Skills mentioned in conversation should appear on the profile."""
         name = f"SkillCheck_{uuid.uuid4().hex[:6]}"
         session_id = f"test-skchk-{uuid.uuid4().hex[:8]}"
-        message = (
-            f"Hi I'm {name}. I'm experienced with Python, Docker, "
-            f"and Terraform. Help me write a Dockerfile for a "
-            f"Python FastAPI app."
-        )
+        # Turn 1: introduce with skills — keep it simple so model stores facts
+        # before any complex coding task distracts it
+        intro = f"Hi I'm {name}. I work as a DevOps engineer and my main skills are Python, Docker, and Terraform."
         try:
-            result = cca.chat(message, session_id=session_id)
+            result = cca.chat(intro, session_id=session_id)
 
-            evaluate_response(result, message, trace_test, judge_model, "user")
+            evaluate_response(result, intro, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.response", result.content[:500])
             assert result.content, "Agent returned empty response"
