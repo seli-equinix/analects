@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -36,6 +36,7 @@ from ..core.tracing import (
     init_tracing, shutdown_tracing, get_tracer,
     get_current_context, attach_context, detach_context,
     OPENINFERENCE_SPAN_KIND, INPUT_VALUE, OUTPUT_VALUE,
+    SESSION_ID, USER_ID, using_session, using_user,
 )
 from ..core.entry.base import EntryInput
 from ..lib.confucius import Confucius
@@ -391,9 +392,11 @@ async def _handle_chat_completions(
 ) -> Any:
     """Inner handler for chat completions — runs inside cca.request span."""
 
-    # 1. Derive session ID
+    # 1. Derive session ID — set on root span and inject into OTel baggage so
+    #    all child spans (router, agent, llm.invoke, tools) inherit session.id
     session_id = derive_session_id(request, x_session_id)
     logger.info(f"Request to session {session_id[:16]}...")
+    request_span.set_attribute(SESSION_ID, session_id)
     request_span.set_attribute("cca.session_id", session_id)
     request_span.set_attribute(INPUT_VALUE, extract_last_user_message(request.messages)[:500])
 
@@ -499,6 +502,11 @@ async def _handle_chat_completions(
     # 6. Build user context for system prompt injection
     # Only USER route has full identification tools (identify_user, infer_user, etc.)
     is_user_route = route and route.expert == ExpertType.USER
+
+    # Set user.id on root span now that identification is complete
+    if user and getattr(user, "user_id", None):
+        request_span.set_attribute(USER_ID, user.user_id)
+
     user_context = ""
     if user:
         # Get critical facts for this session
@@ -682,6 +690,7 @@ async def _handle_chat_completions(
             async def run_agent() -> None:
                 with tracer.start_as_current_span("cca.agent") as span:
                     span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                    span.set_attribute(SESSION_ID, session_id)
                     span.set_attribute(INPUT_VALUE, user_message[:500])
                     span.set_attribute("cca.session_id", session_id)
                     span.set_attribute("cca.mode", "streaming")
@@ -689,10 +698,17 @@ async def _handle_chat_completions(
                     if route:
                         span.set_attribute("cca.route", route.expert.value)
                         span.set_attribute("cca.route_summary", route.task_summary[:100])
+                    if user and getattr(user, "user_id", None):
+                        span.set_attribute(USER_ID, user.user_id)
                     try:
-                        await pool_entry.cf.invoke_analect(
-                            entry, EntryInput(question=user_message)
-                        )
+                        # using_session + using_user propagate session.id / user.id
+                        # into OTel baggage so auto-instrumented OpenAI spans inherit them
+                        _user_id = getattr(user, "user_id", None) if user else None
+                        with using_session(session_id):
+                            with (using_user(_user_id) if _user_id else nullcontext()):
+                                await pool_entry.cf.invoke_analect(
+                                    entry, EntryInput(question=user_message)
+                                )
                         span.set_attribute("cca.status", "success")
                         span.set_attribute(
                             "cca.tool_iterations",
@@ -747,6 +763,7 @@ async def _handle_chat_completions(
             # Non-streaming mode: run agent, collect output, return complete response
             with tracer.start_as_current_span("cca.agent") as span:
                 span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                span.set_attribute(SESSION_ID, session_id)
                 span.set_attribute(INPUT_VALUE, user_message[:500])
                 span.set_attribute("cca.session_id", session_id)
                 span.set_attribute("cca.mode", "non-streaming")
@@ -756,11 +773,16 @@ async def _handle_chat_completions(
                     span.set_attribute("cca.route_summary", route.task_summary[:100])
                 if user:
                     span.set_attribute("cca.user", user.display_name)
+                    if getattr(user, "user_id", None):
+                        span.set_attribute(USER_ID, user.user_id)
 
                 try:
-                    await pool_entry.cf.invoke_analect(
-                        entry, EntryInput(question=user_message)
-                    )
+                    _user_id = getattr(user, "user_id", None) if user else None
+                    with using_session(session_id):
+                        with (using_user(_user_id) if _user_id else nullcontext()):
+                            await pool_entry.cf.invoke_analect(
+                                entry, EntryInput(question=user_message)
+                            )
                 except Exception as e:
                     span.set_attribute("cca.status", "error")
                     span.set_attribute("cca.error", str(e)[:500])

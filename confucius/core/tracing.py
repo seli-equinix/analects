@@ -52,6 +52,9 @@ LLM_TOKEN_COUNT_PROMPT = "llm.token_count.prompt"
 LLM_TOKEN_COUNT_COMPLETION = "llm.token_count.completion"
 TOOL_NAME = "tool.name"
 TOOL_PARAMETERS = "tool.parameters"
+# Phoenix session/user grouping (standard OpenInference attributes)
+SESSION_ID = "session.id"
+USER_ID = "user.id"
 
 
 def init_tracing() -> Optional[trace.Tracer]:
@@ -120,6 +123,41 @@ def shutdown_tracing() -> None:
 def get_tracer(name: str = "cca-http") -> trace.Tracer:
     """Get a tracer instance. Safe to call even if tracing is not initialized."""
     return trace.get_tracer(name)
+
+
+def using_session(session_id: str) -> Any:
+    """Context manager that injects session.id into OTel baggage.
+
+    All spans created inside this context (including auto-instrumented OpenAI
+    calls) automatically receive the session.id attribute, enabling Phoenix
+    to group them into a single conversation thread.
+
+    Usage:
+        with using_session(session_id):
+            route = await classify_request(...)
+            response = await run_agent(...)
+    """
+    try:
+        from openinference.instrumentation import using_session as _using_session
+        return _using_session(session_id)
+    except ImportError:
+        # Fallback: no-op context manager if openinference not installed
+        from contextlib import nullcontext
+        return nullcontext()
+
+
+def using_user(user_id: str) -> Any:
+    """Context manager that injects user.id into OTel baggage.
+
+    Companion to using_session() — set user.id on spans so Phoenix can
+    group traces by user across sessions.
+    """
+    try:
+        from openinference.instrumentation import using_user as _using_user
+        return _using_user(user_id)
+    except ImportError:
+        from contextlib import nullcontext
+        return nullcontext()
 
 
 def get_current_context() -> otel_context.Context:
