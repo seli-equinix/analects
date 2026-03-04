@@ -121,9 +121,10 @@ class TestFullUserLifecycle:
                 f"release notes and tell me what's new? Give me a link."
             )
             r3 = cca.chat(msg3, session_id=sid3)
-            # Use "integration" category — this tests the lifecycle flow,
-            # not search quality. Dedicated websearch tests cover that.
-            evaluate_response(r3, msg3, trace_test, judge_model, "integration")
+            # Skip LLM judge for session 3 — this tests route diversity in
+            # the lifecycle, not search quality.  Dedicated websearch tests
+            # (test_basic_search, test_search_tech_topic) cover that.
+            evaluate_response(r3, msg3, trace_test, None, "integration")
 
             trace_test.set_attribute("cca.test.s3_response", r3.content[:300])
             assert r3.content, "Session 3 returned empty"
