@@ -544,22 +544,27 @@ async def _handle_chat_completions(
     # 6b. Enrich context with relevant past notes from Qdrant
     if note_observer and user and user.user_id and user_message:
         try:
+            # Build richer query: user message + identity hints for better recall
+            note_query = user_message
+            if user and user.display_name:
+                note_query = f"{user.display_name} preferences style: {user_message}"
             relevant_notes = await note_observer.search_notes(
-                query=user_message,
+                query=note_query,
                 user_id=user.user_id,
                 n_results=3,
-                min_score=0.2,
+                min_score=0.15,
             )
             if relevant_notes:
                 notes_ctx = format_notes_for_prompt(relevant_notes)
                 user_context += f"\n\n{notes_ctx}"
-                logger.debug(
-                    "Injected %d past notes for user %s",
+                logger.info(
+                    "Injected %d past notes for user %s (scores: %s)",
                     len(relevant_notes),
                     user.user_id,
+                    [round(n.get("score", 0), 3) for n in relevant_notes],
                 )
         except Exception as e:
-            logger.debug("Note enrichment failed (non-fatal): %s", e)
+            logger.warning("Note enrichment failed (non-fatal): %s", e)
 
     # 6c. Inject always-type rules into system prompt (identified users only)
     rule_user_id = user.user_id if user else None
