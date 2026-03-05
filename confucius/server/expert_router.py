@@ -192,7 +192,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
             "description": (
                 "Route to the coding expert. Use for: writing code, editing files, "
                 "refactoring, debugging, implementing features, fixing bugs, "
-                "creating files, modifying code, and Git operations. "
+                "creating files, modifying code, Git operations, "
+                "AND searching/exploring codebases (finding functions, files, "
+                "code patterns, dependencies, call graphs). "
                 "This route also handles user facts — if the user introduces "
                 "themselves or asks about their profile while requesting code, "
                 "use this route."
@@ -260,9 +262,10 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "route_to_search",
             "description": (
-                "Route to search/research expert. Use for: searching codebases, "
-                "finding files, looking up documentation, web research, "
-                "and information retrieval that doesn't involve code changes."
+                "Route to web search/research expert. Use ONLY for: web research, "
+                "looking up external documentation, searching the internet, "
+                "and information retrieval from the web. "
+                "Do NOT use for searching project codebases — use route_to_coder instead."
             ),
             "parameters": {
                 "type": "object",
@@ -737,9 +740,9 @@ coding and infrastructure management agent.
 Analyze the user's request and call EXACTLY ONE routing function.
 
 Routing rules:
-- Code writing, editing, debugging, refactoring → route_to_coder
+- Code writing, editing, debugging, refactoring, searching/exploring codebases → route_to_coder
 - Docker, Swarm, servers, networking, deployments, monitoring → route_to_infrastructure
-- Searching codebases, docs, or the web (no code changes) → route_to_search
+- Web research, looking up external docs, internet searches → route_to_search
 - Architecture design, planning, task breakdown (no code changes) → route_to_planner
 - User identity, profiles, facts, preferences, skills/aliases → route_to_user
 - Simple factual questions, concept explanations → answer_directly
@@ -760,6 +763,9 @@ AI news?" ALWAYS need web search because your training data may be outdated.
 Disambiguation:
 - Coder vs infrastructure: Docker/containers/services/nodes → infrastructure; \
 files/functions/classes/tests/bugs → coder.
+- Coder vs search: "find functions in the codebase", "search the project code", \
+"which files implement X" → coder (has codebase search tools). \
+Search is ONLY for web/internet lookups.
 - User vs coder: If user asks about their profile or facts AND also requests \
 code/technical work in the same message → coder (it has user memory tools). \
 Route to user ONLY when the message is exclusively about identity, profile, \
