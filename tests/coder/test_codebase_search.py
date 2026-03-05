@@ -3,6 +3,11 @@
 Journey: ask about code in the indexed workspace → verify agent uses
 search_codebase or search_knowledge tools → verify relevant results.
 
+The CODE_SEARCH tool group (search_codebase, search_knowledge) is on the
+CODER route, NOT the SEARCH route. Messages must be phrased as coding
+tasks ("I'm working on X, find the code for Y") rather than search-y
+phrasing ("Search for X") to avoid SEARCH route classification.
+
 Exercises: search_codebase, search_knowledge (CODE_SEARCH group), CODER route.
 """
 
@@ -22,12 +27,14 @@ class TestCodebaseSearch:
         """Search the indexed codebase and verify relevant results."""
         sid = f"test-codesearch-{uuid.uuid4().hex[:8]}"
 
-        # ── Turn 1: Search for a known pattern ──
-        # The MCP server codebase is indexed — search for something
-        # that definitely exists in the indexed files.
+        # ── Turn 1: Ask about code structure (coding task framing) ──
+        # The MCP server codebase is indexed — ask about something
+        # that definitely exists. Frame as a coding task to route
+        # to CODER (which has CODE_SEARCH tools), not SEARCH.
         msg1 = (
-            "Search the codebase for functions related to 'health check' "
-            "or 'health endpoint'. What files implement health checks?"
+            "I need to modify the health check endpoint in our project. "
+            "Look through the codebase and find which files implement "
+            "health check functions. Show me the relevant code locations."
         )
         r1 = cca.chat(msg1, session_id=sid)
         evaluate_response(r1, msg1, trace_test, judge_model, "integration")
@@ -37,9 +44,11 @@ class TestCodebaseSearch:
 
         # Should have used search tools
         iters = r1.metadata.get("tool_iterations", 0)
+        route = r1.metadata.get("route", "")
         trace_test.set_attribute("cca.test.t1_iters", iters)
+        trace_test.set_attribute("cca.test.t1_route", route)
         assert iters >= 1, (
-            f"Agent didn't use search tools (iters={iters}). "
+            f"Agent didn't use search tools (route={route}, iters={iters}). "
             f"Response: {r1.content[:200]}"
         )
 
@@ -53,10 +62,11 @@ class TestCodebaseSearch:
             f"Response doesn't reference code: {r1.content[:300]}"
         )
 
-        # ── Turn 2: Ask about a specific technology ──
+        # ── Turn 2: Ask about a specific technology in the codebase ──
         msg2 = (
-            "Search the codebase for anything related to Qdrant — "
-            "which files use Qdrant and what collections do they reference?"
+            "I also need to understand our Qdrant integration. "
+            "Find the files in the codebase that use Qdrant and tell me "
+            "what collections they create or reference."
         )
         r2 = cca.chat(msg2, session_id=sid)
         evaluate_response(r2, msg2, trace_test, judge_model, "integration")

@@ -96,6 +96,7 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
     ],
     ExpertType.SEARCH: [
         ToolGroup.WEB,          # web_search + fetch_url_content
+        ToolGroup.CODE_SEARCH,  # search_codebase + search_knowledge (router says SEARCH handles codebase search)
         ToolGroup.USER_MEMORY,  # remember_user_fact + get_user_context
         ToolGroup.NOTES,        # search_notes (past session knowledge)
     ],
