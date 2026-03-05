@@ -69,6 +69,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "user: User identification and profile tests")
     config.addinivalue_line("markers", "websearch: Web search and URL fetch tests")
     config.addinivalue_line("markers", "integration: Multi-tool integration tests")
+    config.addinivalue_line("markers", "coder: CODER route tool tests (file, bash, search, graph, docs, rules)")
     config.addinivalue_line("markers", "slow: Tests that take more than 60 seconds")
 
 
@@ -342,7 +343,7 @@ def session_cleanup(cca):
         users_data = cca.list_users()
         test_prefixes = (
             # Flow tests (consolidated)
-            "Onboard_", "Memory_", "CRUD_", "Lifecycle_",
+            "Onboard_", "Memory_", "CRUD_", "Lifecycle_", "NoteTest_",
             # Legacy prefixes (safety net for stragglers)
             "TestUser_", "SkillUser_", "AliasUser_", "AliasChk_",
             "Aliaschk_", "RmAlias_", "Rmalias_",
