@@ -338,7 +338,9 @@ def session_cleanup(cca):
 
     log.info("=== Session cleanup: sweeping stale test data ===")
 
-    # 1. Delete stale test users
+    # 1. Delete stale test users (only those older than 5 minutes to avoid
+    #    deleting users that belong to a parallel pytest process still running)
+    stale_cutoff = time.time() - 300  # 5 minutes ago
     try:
         users_data = cca.list_users()
         test_prefixes = (
@@ -366,7 +368,8 @@ def session_cleanup(cca):
             name = user.get("display_name", "")
             if any(name.startswith(p) for p in test_prefixes):
                 user_id = user.get("user_id", "")
-                if user_id:
+                last_seen = user.get("last_seen", 0)
+                if user_id and last_seen < stale_cutoff:
                     try:
                         cca._client.delete(
                             f"{cca.base_url}/users/{user_id}",
