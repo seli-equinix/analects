@@ -532,6 +532,14 @@ async def _handle_chat_completions(
             user, critical_facts_str, id_result or None,
             full_user_tools=is_user_route,
         )
+        logger.info(
+            "User context for %s (id_source=%s): facts=%s, skills=%s, prefs=%s",
+            user.display_name,
+            id_source,
+            list(user.facts.keys()) if user.facts else "none",
+            user.skills[:5] if user.skills else "none",
+            list(user.preferences.keys()) if user.preferences else "none",
+        )
         # Add router-identified hint so the 80B knows not to call identify tools
         if id_source == "router":
             user_context += (
