@@ -72,7 +72,7 @@ class BackendClients:
 
         import httpx
 
-        self._http_client = httpx.AsyncClient(timeout=60.0)
+        self._http_client = httpx.AsyncClient(timeout=120.0)
         self._redis = redis
 
         # ---- Qdrant ---------------------------------------------------
@@ -95,8 +95,8 @@ class BackendClients:
             self._memgraph = AsyncGraphDatabase.driver(
                 uri,
                 auth=None,  # Memgraph has no auth configured
-                max_connection_pool_size=5,
-                connection_acquisition_timeout=10,
+                max_connection_pool_size=10,
+                connection_acquisition_timeout=30,
             )
             # Verify connectivity
             async with self._memgraph.session() as session:
@@ -228,8 +228,8 @@ class BackendClients:
                 driver = AsyncGraphDatabase.driver(
                     uri,
                     auth=None,
-                    max_connection_pool_size=5,
-                    connection_acquisition_timeout=10,
+                    max_connection_pool_size=10,
+                    connection_acquisition_timeout=30,
                 )
                 async with driver.session() as session:
                     await session.run("RETURN 1")

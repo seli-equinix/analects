@@ -97,6 +97,12 @@ SERVED_MODEL_NAME: str = _resolve_served_model_name()
 
 # ==================== Globals (initialised in lifespan) ====================
 
+# Concurrency control: max 4 concurrent agent loops.
+# Requests beyond this limit queue (wait for a slot) — they don't fail.
+# This prevents resource contention when multiple users send requests
+# simultaneously (CPU, GPU via note observer, Memgraph connections).
+_AGENT_SEMAPHORE = asyncio.Semaphore(4)
+
 session_pool: SessionPool
 user_session_mgr: UserSessionManager
 critical_facts_extractor: CriticalFactsExtractor
@@ -717,49 +723,50 @@ async def _handle_chat_completions(
             completion_id = generate_completion_id()
 
             async def run_agent() -> None:
-                with tracer.start_as_current_span("cca.agent") as span:
-                    span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
-                    span.set_attribute(SESSION_ID, session_id)
-                    span.set_attribute(INPUT_VALUE, user_message[:500])
-                    span.set_attribute("cca.session_id", session_id)
-                    span.set_attribute("cca.mode", "streaming")
-                    span.set_attribute("cca.message", user_message[:200])
-                    if route:
-                        span.set_attribute("cca.route", route.expert.value)
-                        span.set_attribute("cca.route_summary", route.task_summary[:100])
-                    if user and getattr(user, "user_id", None):
-                        span.set_attribute(USER_ID, user.user_id)
-                    try:
-                        # using_session + using_user propagate session.id / user.id
-                        # into OTel baggage so auto-instrumented OpenAI spans inherit them
-                        _user_id = getattr(user, "user_id", None) if user else None
-                        with using_session(session_id):
-                            with (using_user(_user_id) if _user_id else nullcontext()):
-                                await pool_entry.cf.invoke_analect(
-                                    entry, EntryInput(question=user_message)
-                                )
-                        span.set_attribute("cca.status", "success")
-                        span.set_attribute(
-                            "cca.tool_iterations",
-                            getattr(entry, "_tool_iterations", 0),
-                        )
-                        span.set_status(StatusCode.OK)
+                async with _AGENT_SEMAPHORE:
+                    with tracer.start_as_current_span("cca.agent") as span:
+                        span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                        span.set_attribute(SESSION_ID, session_id)
+                        span.set_attribute(INPUT_VALUE, user_message[:500])
+                        span.set_attribute("cca.session_id", session_id)
+                        span.set_attribute("cca.mode", "streaming")
+                        span.set_attribute("cca.message", user_message[:200])
+                        if route:
+                            span.set_attribute("cca.route", route.expert.value)
+                            span.set_attribute("cca.route_summary", route.task_summary[:100])
+                        if user and getattr(user, "user_id", None):
+                            span.set_attribute(USER_ID, user.user_id)
+                        try:
+                            # using_session + using_user propagate session.id / user.id
+                            # into OTel baggage so auto-instrumented OpenAI spans inherit them
+                            _user_id = getattr(user, "user_id", None) if user else None
+                            with using_session(session_id):
+                                with (using_user(_user_id) if _user_id else nullcontext()):
+                                    await pool_entry.cf.invoke_analect(
+                                        entry, EntryInput(question=user_message)
+                                    )
+                            span.set_attribute("cca.status", "success")
+                            span.set_attribute(
+                                "cca.tool_iterations",
+                                getattr(entry, "_tool_iterations", 0),
+                            )
+                            span.set_status(StatusCode.OK)
 
-                        # Fire note observer in background with span context
-                        if note_observer:
-                            trajectory = pool_entry.cf.memory_manager.get_session_memory().messages
-                            ctx = get_current_context()
-                            asyncio.create_task(_run_note_observer_with_context(
-                                ctx, note_observer, list(trajectory),
-                                session_id, user,
-                            ))
-                    except Exception as e:
-                        span.set_attribute("cca.status", "error")
-                        span.set_attribute("cca.error", str(e)[:500])
-                        span.set_status(StatusCode.ERROR, str(e)[:500])
-                        raise
-                    finally:
-                        await io.signal_done()
+                            # Fire note observer in background with span context
+                            if note_observer:
+                                trajectory = pool_entry.cf.memory_manager.get_session_memory().messages
+                                ctx = get_current_context()
+                                asyncio.create_task(_run_note_observer_with_context(
+                                    ctx, note_observer, list(trajectory),
+                                    session_id, user,
+                                ))
+                        except Exception as e:
+                            span.set_attribute("cca.status", "error")
+                            span.set_attribute("cca.error", str(e)[:500])
+                            span.set_status(StatusCode.ERROR, str(e)[:500])
+                            raise
+                        finally:
+                            await io.signal_done()
 
             agent_task = asyncio.create_task(run_agent())
 
@@ -793,104 +800,105 @@ async def _handle_chat_completions(
             )
         else:
             # Non-streaming mode: run agent, collect output, return complete response
-            with tracer.start_as_current_span("cca.agent") as span:
-                span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
-                span.set_attribute(SESSION_ID, session_id)
-                span.set_attribute(INPUT_VALUE, user_message[:500])
-                span.set_attribute("cca.session_id", session_id)
-                span.set_attribute("cca.mode", "non-streaming")
-                span.set_attribute("cca.message", user_message[:200])
-                if route:
-                    span.set_attribute("cca.route", route.expert.value)
-                    span.set_attribute("cca.route_summary", route.task_summary[:100])
-                if user:
-                    span.set_attribute("cca.user", user.display_name)
-                    if getattr(user, "user_id", None):
-                        span.set_attribute(USER_ID, user.user_id)
+            async with _AGENT_SEMAPHORE:
+                with tracer.start_as_current_span("cca.agent") as span:
+                    span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+                    span.set_attribute(SESSION_ID, session_id)
+                    span.set_attribute(INPUT_VALUE, user_message[:500])
+                    span.set_attribute("cca.session_id", session_id)
+                    span.set_attribute("cca.mode", "non-streaming")
+                    span.set_attribute("cca.message", user_message[:200])
+                    if route:
+                        span.set_attribute("cca.route", route.expert.value)
+                        span.set_attribute("cca.route_summary", route.task_summary[:100])
+                    if user:
+                        span.set_attribute("cca.user", user.display_name)
+                        if getattr(user, "user_id", None):
+                            span.set_attribute(USER_ID, user.user_id)
 
-                try:
-                    _user_id = getattr(user, "user_id", None) if user else None
-                    with using_session(session_id):
-                        with (using_user(_user_id) if _user_id else nullcontext()):
-                            await pool_entry.cf.invoke_analect(
-                                entry, EntryInput(question=user_message)
-                            )
-                except Exception as e:
-                    span.set_attribute("cca.status", "error")
-                    span.set_attribute("cca.error", str(e)[:500])
-                    span.set_status(StatusCode.ERROR, str(e)[:500])
-                    logger.error(f"Agent execution failed: {e}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={
-                            "error": {
-                                "message": f"Agent execution error: {e}",
-                                "type": "server_error",
-                            }
-                        },
+                    try:
+                        _user_id = getattr(user, "user_id", None) if user else None
+                        with using_session(session_id):
+                            with (using_user(_user_id) if _user_id else nullcontext()):
+                                await pool_entry.cf.invoke_analect(
+                                    entry, EntryInput(question=user_message)
+                                )
+                    except Exception as e:
+                        span.set_attribute("cca.status", "error")
+                        span.set_attribute("cca.error", str(e)[:500])
+                        span.set_status(StatusCode.ERROR, str(e)[:500])
+                        logger.error(f"Agent execution failed: {e}")
+                        return JSONResponse(
+                            status_code=500,
+                            content={
+                                "error": {
+                                    "message": f"Agent execution error: {e}",
+                                    "type": "server_error",
+                                }
+                            },
+                        )
+
+                    span.set_status(StatusCode.OK)
+
+                    # Fire note observer in background with span context
+                    if note_observer:
+                        trajectory = pool_entry.cf.memory_manager.get_session_memory().messages
+                        ctx = get_current_context()
+                        asyncio.create_task(_run_note_observer_with_context(
+                            ctx, note_observer, list(trajectory),
+                            session_id, user,
+                        ))
+
+                    # Collect response from IO buffer
+                    response_text = io.get_response_text()
+                    if not response_text:
+                        response_text = io.get_all_text()
+
+                    thinking_text = io.get_thinking_text()
+
+                    # Process critical facts from this exchange
+                    await critical_facts_extractor.process_conversation(
+                        session_id, user_message, response_text
                     )
 
-                span.set_status(StatusCode.OK)
+                    # Build OpenAI-compatible response
+                    execution_time = (time.time() - start_time) * 1000
+                    from .models import ContextMetadata
 
-                # Fire note observer in background with span context
-                if note_observer:
-                    trajectory = pool_entry.cf.memory_manager.get_session_memory().messages
-                    ctx = get_current_context()
-                    asyncio.create_task(_run_note_observer_with_context(
-                        ctx, note_observer, list(trajectory),
-                        session_id, user,
-                    ))
+                    # Extract tool iteration count from the entry
+                    tool_iters = getattr(entry, "_tool_iterations", 0)
+                    route_name = route.expert.value if route else None
 
-                # Collect response from IO buffer
-                response_text = io.get_response_text()
-                if not response_text:
-                    response_text = io.get_all_text()
+                    metadata = ContextMetadata(
+                        tool_iterations=tool_iters,
+                        route=route_name,
+                        user_identified=session.identified,
+                        user_name=user.display_name if user else None,
+                        user_id=user.user_id if user else None,
+                        execution_time_ms=execution_time,
+                        tools_escalated=getattr(entry, "_tools_escalated", False),
+                        escalated_groups=getattr(entry, "_escalated_groups", None) or None,
+                    )
 
-                thinking_text = io.get_thinking_text()
+                    span.set_attribute("cca.status", "success")
+                    span.set_attribute("cca.execution_time_ms", execution_time)
+                    span.set_attribute("cca.response_length", len(response_text))
+                    span.set_attribute("cca.tool_iterations", tool_iters)
+                    span.set_attribute(OUTPUT_VALUE, response_text[:500])
 
-                # Process critical facts from this exchange
-                await critical_facts_extractor.process_conversation(
-                    session_id, user_message, response_text
-                )
+                    # Estimated token counts (4 chars per token)
+                    est_completion_tokens = len(response_text) // 4
+                    span.set_attribute("llm.token_count.completion", est_completion_tokens)
+                    span.set_attribute("llm.token_count.total", est_completion_tokens)
 
-                # Build OpenAI-compatible response
-                execution_time = (time.time() - start_time) * 1000
-                from .models import ContextMetadata
+                    response = build_completion_response(
+                        content=response_text,
+                        model=request.model or SERVED_MODEL_NAME,
+                        reasoning=thinking_text if thinking_text else None,
+                        metadata=metadata,
+                    )
 
-                # Extract tool iteration count from the entry
-                tool_iters = getattr(entry, "_tool_iterations", 0)
-                route_name = route.expert.value if route else None
-
-                metadata = ContextMetadata(
-                    tool_iterations=tool_iters,
-                    route=route_name,
-                    user_identified=session.identified,
-                    user_name=user.display_name if user else None,
-                    user_id=user.user_id if user else None,
-                    execution_time_ms=execution_time,
-                    tools_escalated=getattr(entry, "_tools_escalated", False),
-                    escalated_groups=getattr(entry, "_escalated_groups", None) or None,
-                )
-
-                span.set_attribute("cca.status", "success")
-                span.set_attribute("cca.execution_time_ms", execution_time)
-                span.set_attribute("cca.response_length", len(response_text))
-                span.set_attribute("cca.tool_iterations", tool_iters)
-                span.set_attribute(OUTPUT_VALUE, response_text[:500])
-
-                # Estimated token counts (4 chars per token)
-                est_completion_tokens = len(response_text) // 4
-                span.set_attribute("llm.token_count.completion", est_completion_tokens)
-                span.set_attribute("llm.token_count.total", est_completion_tokens)
-
-                response = build_completion_response(
-                    content=response_text,
-                    model=request.model or SERVED_MODEL_NAME,
-                    reasoning=thinking_text if thinking_text else None,
-                    metadata=metadata,
-                )
-
-                return response
+                    return response
 
     finally:
         # Always release session (save state + unlock)

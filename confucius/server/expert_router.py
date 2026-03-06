@@ -805,7 +805,7 @@ async def _get_client() -> httpx.AsyncClient:
     global _client
     async with _client_lock:
         if _client is None or _client.is_closed:
-            _client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
+            _client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
         return _client
 
 
