@@ -7,6 +7,7 @@ The server auto-creates users when it detects a name introduction.
 Tests validate state via the /users REST API for ground-truth.
 """
 
+import time
 import uuid
 
 import pytest
@@ -124,24 +125,32 @@ class TestFullUserLifecycle:
 
             # Verify infra facts were stored via REST
             profile_s4 = cca.get_user_profile(user_id)
-            if profile_s4:
-                facts_s4 = str(profile_s4.get("facts", {})).lower()
-                infra_stored = any(w in facts_s4 for w in [
-                    "swarm", "registry", "portainer", "gitops", "5-node",
-                    "5 node",
-                ])
-                trace_test.set_attribute(
-                    "cca.test.infra_facts_stored", infra_stored,
-                )
-                trace_test.set_attribute(
-                    "cca.test.s4_facts", str(profile_s4.get("facts", {})),
-                )
+            assert profile_s4 is not None, "Profile not found after session 4"
+            facts_s4 = str(profile_s4.get("facts", {})).lower()
+            infra_stored = any(w in facts_s4 for w in [
+                "swarm", "registry", "portainer", "gitops", "5-node",
+                "5 node",
+            ])
+            trace_test.set_attribute(
+                "cca.test.infra_facts_stored", infra_stored,
+            )
+            trace_test.set_attribute(
+                "cca.test.s4_facts", str(profile_s4.get("facts", {})),
+            )
+            assert infra_stored, (
+                f"Infra facts not stored after session 4. "
+                f"Facts: {profile_s4.get('facts', {})}"
+            )
 
-            # ── Session 5: Follow-up building on earlier work ──
+            # Wait for NoteObserver to process session 4 notes
+            time.sleep(10)
+
+            # ── Session 5: Recall infra context + build on it ──
             msg5 = (
-                "One more thing — write me a quick Python Flask app "
-                "that connects to that Redis cache and has a /health "
-                "endpoint. Just the app.py code, nothing fancy."
+                "What do you know about my infrastructure setup? "
+                "Based on that, write me a Python Flask app with a "
+                "/health endpoint that connects to Redis. "
+                "Just the app.py code."
             )
             r5 = cca.chat(msg5, session_id=sid5, user_id=user_id)
             evaluate_response(r5, msg5, trace_test, judge_model, "integration")
@@ -149,8 +158,20 @@ class TestFullUserLifecycle:
             trace_test.set_attribute("cca.test.s5_response", r5.content[:500])
             assert r5.content, "Session 5 returned empty"
 
-            # Should produce Flask + Redis code
+            # Should recall infra details from earlier sessions
             s5_lower = r5.content.lower()
+            infra_recalled = sum(1 for w in [
+                "swarm", "registry", "portainer", "gitops",
+            ] if w in s5_lower)
+            trace_test.set_attribute(
+                "cca.test.s5_infra_recalled", infra_recalled,
+            )
+            assert infra_recalled >= 1, (
+                f"Session 5 didn't recall any infra details "
+                f"(swarm/registry/portainer/gitops): {r5.content[:400]}"
+            )
+
+            # Should also produce Flask + Redis code
             has_flask = any(w in s5_lower for w in [
                 "flask", "app.py", "@app", "from flask",
             ])
