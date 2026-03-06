@@ -49,12 +49,17 @@ class TestNoteRecall:
             # to call Qwen3-8B for extraction + embed + upsert to Qdrant.
             time.sleep(15)
 
+            # Capture user_id for cross-session tracking
+            user = cca.find_user_by_name(name)
+            assert user is not None, f"User '{name}' not created in session 1"
+            user_id = user["user_id"]
+
             # ── Session 2: New session — recall without re-intro ──
             msg2 = (
                 "What was that project I was working on "
                 "last time? Something about real-time streaming?"
             )
-            r2 = cca.chat(msg2, session_id=sid2)
+            r2 = cca.chat(msg2, session_id=sid2, user_id=user_id)
             # Skip judge — recall quality depends on note extraction
             # which is non-deterministic (8B model extraction).
             evaluate_response(r2, msg2, trace_test, None, "integration")

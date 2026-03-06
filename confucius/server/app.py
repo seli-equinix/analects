@@ -350,6 +350,7 @@ async def _run_note_observer_with_context(
 async def chat_completions(
     request: ChatCompletionRequest,
     x_session_id: Optional[str] = Header(None, alias="X-Session-Id"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
     http_request: Request = None,  # type: ignore[assignment]
 ) -> Any:
     """OpenAI-compatible chat completions powered by CCA's full agent loop."""
@@ -372,7 +373,7 @@ async def chat_completions(
 
         try:
             result = await _handle_chat_completions(
-                request, x_session_id, http_request,
+                request, x_session_id, x_user_id, http_request,
                 start_time, tracer, request_span,
             )
             request_span.set_status(StatusCode.OK)
@@ -385,6 +386,7 @@ async def chat_completions(
 async def _handle_chat_completions(
     request: ChatCompletionRequest,
     x_session_id: Optional[str],
+    x_user_id: Optional[str],
     http_request: Request,
     start_time: float,
     tracer: Any,
@@ -409,6 +411,19 @@ async def _handle_chat_completions(
     session.message_count += 1
     if client_type:
         session.client_type = client_type
+
+    # 3a. Layer 0: User ID token (instant cross-session identification)
+    token_user_id = request.user_id or x_user_id
+    if token_user_id and not session.identified:
+        token_user = await user_session_mgr._get_user_profile(token_user_id)
+        if token_user:
+            await user_session_mgr.link_session_to_user(
+                session, token_user, client_type
+            )
+            logger.info(
+                "Layer 0 ID: linked session %s to user %s via token",
+                session_id[:16], token_user.display_name,
+            )
 
     # 4. Classify request via Functionary router (if enabled)
     #    Router runs FIRST so it can extract user info alongside routing.
@@ -611,6 +626,7 @@ async def _handle_chat_completions(
             metadata = ContextMetadata(
                 user_identified=session.identified,
                 user_name=user.display_name if user else None,
+                user_id=user.user_id if user else None,
                 execution_time_ms=execution_time,
                 route=route.expert.value,
             )
@@ -747,6 +763,7 @@ async def _handle_chat_completions(
                     route=route.expert.value if route else None,
                     user_identified=session.identified,
                     user_name=user.display_name if user else None,
+                    user_id=user.user_id if user else None,
                     execution_time_ms=(time.time() - start_time) * 1000,
                     estimated_steps=route.estimated_steps if route else 0,
                     max_iterations=get_max_iterations(route) if route else 0,
@@ -841,6 +858,7 @@ async def _handle_chat_completions(
                     route=route_name,
                     user_identified=session.identified,
                     user_name=user.display_name if user else None,
+                    user_id=user.user_id if user else None,
                     execution_time_ms=execution_time,
                     tools_escalated=getattr(entry, "_tools_escalated", False),
                     escalated_groups=getattr(entry, "_escalated_groups", None) or None,

@@ -57,6 +57,10 @@ class ChatResult:
     def user_name(self) -> Optional[str]:
         return self.metadata.get("user_name")
 
+    @property
+    def user_id(self) -> Optional[str]:
+        return self.metadata.get("user_id")
+
     def __repr__(self) -> str:
         preview = self.content[:80] + "..." if len(self.content) > 80 else self.content
         meta_parts = [f"{self.elapsed_ms:.0f}ms", f"{len(self.content)} chars"]
@@ -119,6 +123,7 @@ class CCAClient:
         self,
         message: str,
         session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         idle_timeout: Optional[float] = None,
         system: Optional[str] = None,
     ) -> ChatResult:
@@ -165,13 +170,16 @@ class CCAClient:
                 "stream": True,
                 "session_id": session_id,
             }
+            if user_id:
+                payload["user_id"] = user_id
 
             last_error: Optional[Exception] = None
             for attempt in range(max_attempts):
                 t0 = time.time()
                 try:
                     result = self._stream_chat(
-                        payload, session_id, read_timeout, span
+                        payload, session_id, read_timeout, span,
+                        user_id=user_id,
                     )
                     elapsed_ms = (time.time() - t0) * 1000
                     result.elapsed_ms = elapsed_ms
@@ -258,6 +266,7 @@ class CCAClient:
         session_id: str,
         read_timeout: float,
         span: Any,
+        user_id: Optional[str] = None,
     ) -> ChatResult:
         """Execute streaming chat and accumulate response.
 
@@ -286,6 +295,8 @@ class CCAClient:
         # This injects traceparent so server spans become children
         # of the test trace in Phoenix (unified trace view).
         headers: Dict[str, str] = {"X-Session-Id": session_id}
+        if user_id:
+            headers["X-User-Id"] = user_id
         otel_inject(headers)
 
         try:

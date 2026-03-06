@@ -140,6 +140,12 @@ class ChatCompletionRequest(BaseModel):
         None, description="Session ID for conversation memory persistence"
     )
 
+    # CCA extension: user ID token for cross-session identification
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID token for cross-session identification",
+    )
+
 
 # ==================== Response Models ====================
 
@@ -186,6 +192,10 @@ class ContextMetadata(BaseModel):
     )
     user_name: Optional[str] = Field(
         None, description="Identified user's display name"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User's persistent ID — send back for cross-session tracking",
     )
     execution_time_ms: float = Field(
         0.0, description="Total request execution time in milliseconds"

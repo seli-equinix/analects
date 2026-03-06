@@ -47,13 +47,14 @@ class TestReturningUserMemory:
 
             user = cca.find_user_by_name(name)
             assert user is not None, f"User '{name}' not created"
+            user_id = user["user_id"]
 
-            # ── Session 2: Return — system should track without re-intro ──
+            # ── Session 2: Return — system tracks via user_id token ──
             msg2 = (
                 "Can you remind me what company I work at? Also write me "
                 "a health check function in Python."
             )
-            r2 = cca.chat(msg2, session_id=sid2)
+            r2 = cca.chat(msg2, session_id=sid2, user_id=user_id)
             evaluate_response(r2, msg2, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s2_response", r2.content[:300])
@@ -88,7 +89,7 @@ class TestReturningUserMemory:
                 f"I switched jobs — I now work at "
                 f"{new_company}. Write me a one-liner to check disk usage."
             )
-            r3 = cca.chat(msg3, session_id=sid3)
+            r3 = cca.chat(msg3, session_id=sid3, user_id=user_id)
             evaluate_response(r3, msg3, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s3_response", r3.content[:300])
@@ -99,7 +100,7 @@ class TestReturningUserMemory:
                 "Where do I work now? "
                 "Also write a quick Python timestamp function."
             )
-            r4 = cca.chat(msg4, session_id=sid4)
+            r4 = cca.chat(msg4, session_id=sid4, user_id=user_id)
             evaluate_response(r4, msg4, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s4_response", r4.content[:300])

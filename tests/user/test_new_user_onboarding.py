@@ -121,12 +121,14 @@ class TestNewUserOnboarding:
             msg4 = (
                 "Write me a function that reverses a linked list."
             )
-            r4 = cca.chat(msg4, session_id=sid2)
+            r4 = cca.chat(msg4, session_id=sid2, user_id=user_id)
             evaluate_response(r4, msg4, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s4_response", r4.content[:500])
             assert r4.content, "Turn 4 returned empty"
-            assert r4.user_identified, "Returning user should be identified"
+            assert r4.user_identified, (
+                "Turn 4 should identify user via user_id token"
+            )
 
             # Code should have ACTUAL type annotations in function signatures,
             # not just type names in docstrings or comments.

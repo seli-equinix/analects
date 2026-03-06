@@ -70,7 +70,7 @@ class TestProfileCRUD:
                 "Show my full profile. Also write a one-liner to "
                 "generate a random number."
             )
-            r2 = cca.chat(msg2, session_id=sid2)
+            r2 = cca.chat(msg2, session_id=sid2, user_id=user_id)
             evaluate_response(r2, msg2, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s2_response", r2.content[:300])
@@ -93,7 +93,7 @@ class TestProfileCRUD:
                 f"my skills. Also remove the alias {alias}, I don't go "
                 f"by that. Write a one-liner to get the current time."
             )
-            r3 = cca.chat(msg3, session_id=sid3)
+            r3 = cca.chat(msg3, session_id=sid3, user_id=user_id)
             evaluate_response(r3, msg3, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s3_response", r3.content[:300])
@@ -121,7 +121,7 @@ class TestProfileCRUD:
                 "I confirm permanent deletion. Also show me how to "
                 "delete a file in Python."
             )
-            r4 = cca.chat(msg4, session_id=sid4)
+            r4 = cca.chat(msg4, session_id=sid4, user_id=user_id)
             evaluate_response(r4, msg4, trace_test, judge_model, "user")
 
             trace_test.set_attribute("cca.test.s4_response", r4.content[:300])

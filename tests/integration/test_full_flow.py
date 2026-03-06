@@ -58,12 +58,14 @@ class TestFullUserLifecycle:
                 "I need help with a container health check script — "
                 "write a bash one-liner that checks if a Docker container is running."
             )
-            r2 = cca.chat(msg2, session_id=sid2)
+            r2 = cca.chat(msg2, session_id=sid2, user_id=user_id)
             evaluate_response(r2, msg2, trace_test, judge_model, "integration")
 
             trace_test.set_attribute("cca.test.s2_response", r2.content[:300])
             assert r2.content, "Session 2 returned empty"
-            assert r2.user_identified, "Returning user should be identified"
+            assert r2.user_identified, (
+                "Session 2 should identify user via user_id token"
+            )
 
             # Session 2 response should reference their infrastructure context
             s2_lower = r2.content.lower()
@@ -77,7 +79,7 @@ class TestFullUserLifecycle:
                 "Can you look up the latest Docker Compose "
                 "release notes and tell me what's new? Give me a link."
             )
-            r3 = cca.chat(msg3, session_id=sid3)
+            r3 = cca.chat(msg3, session_id=sid3, user_id=user_id)
             # Skip LLM judge for session 3 — this tests route diversity in
             # the lifecycle, not search quality.  Dedicated websearch tests
             # (test_basic_search, test_search_tech_topic) cover that.
@@ -122,10 +124,13 @@ class TestFullUserLifecycle:
                 f"Facts: {facts}"
             )
 
-            # Should have session history from multiple sessions
+            # All 3 sessions should be linked via user_id token
             sessions = profile.get("session_history", [])
-            assert len(sessions) >= 2, (
-                f"Profile should show multiple sessions, got {len(sessions)}: "
+            trace_test.set_attribute(
+                "cca.test.session_count", len(sessions),
+            )
+            assert len(sessions) >= 3, (
+                f"Expected >= 3 sessions linked, got {len(sessions)}: "
                 f"{sessions}"
             )
 
