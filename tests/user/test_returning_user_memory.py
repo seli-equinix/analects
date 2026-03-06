@@ -23,6 +23,7 @@ class TestReturningUserMemory:
 
     def test_returning_user_memory(self, cca, trace_test, judge_model):
         """Full memory flow: store → recall → overwrite → verify."""
+        tracker = cca.tracker()
         name = f"Memory_{uuid.uuid4().hex[:6]}"
         old_company = f"OldCorp_{uuid.uuid4().hex[:4]}"
         new_company = f"NewCorp_{uuid.uuid4().hex[:4]}"
@@ -30,6 +31,9 @@ class TestReturningUserMemory:
         sid2 = f"test-mem2-{uuid.uuid4().hex[:8]}"
         sid3 = f"test-mem3-{uuid.uuid4().hex[:8]}"
         sid4 = f"test-mem4-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(name)
+        for s in (sid1, sid2, sid3, sid4):
+            tracker.track_session(s)
 
         try:
             # ── Session 1: First visit — introduce with distinctive info ──
@@ -115,4 +119,4 @@ class TestReturningUserMemory:
             )
 
         finally:
-            cca.cleanup_test_user(name)
+            tracker.cleanup()

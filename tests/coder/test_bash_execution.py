@@ -25,9 +25,13 @@ class TestBashExecution:
 
     def test_bash_execution(self, cca, trace_test, judge_model):
         """System commands → bash script → run → verify → user recall."""
+        tracker = cca.tracker()
         user_name = f"BashTest_{uuid.uuid4().hex[:6]}"
         script_name = f"sysinfo_{uuid.uuid4().hex[:6]}.sh"
         sid = f"test-bash-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(user_name)
+        tracker.track_session(sid)
+        tracker.track_workspace_prefix(script_name.replace(".sh", ""))
 
         try:
             # ── Turn 1: Introduce user + run two commands ──
@@ -147,7 +151,4 @@ class TestBashExecution:
             )
 
         finally:
-            cca.clean_workspace_files(
-                prefix=script_name.replace(".sh", "")
-            )
-            cca.cleanup_test_user(user_name)
+            tracker.cleanup()

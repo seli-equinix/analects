@@ -991,6 +991,30 @@ async def list_sessions() -> Dict[str, Any]:
     }
 
 
+@app.delete("/sessions", dependencies=[Depends(require_admin_key)])
+async def delete_sessions(request: Request) -> Dict[str, Any]:
+    """Batch delete sessions and their Redis data (for test cleanup).
+
+    Body: {"session_ids": ["test-abc-123", "test-def-456"]}
+    Deletes: cca:session:{id} + cca:trajectory:{id} from Redis.
+    """
+    body = await request.json()
+    session_ids = body.get("session_ids", [])
+    deleted = 0
+    for sid in session_ids:
+        await user_session_mgr.delete_session(sid)
+        deleted += 1
+        # Also clean trajectory (note_observer stores separately)
+        if user_session_mgr._redis is not None:
+            try:
+                deleted += await user_session_mgr._redis.delete(
+                    f"cca:trajectory:{sid}"
+                )
+            except Exception:
+                pass
+    return {"sessions_deleted": len(session_ids), "keys_cleaned": deleted}
+
+
 @app.get("/stats")
 async def stats() -> Dict[str, Any]:
     """Diagnostic statistics."""

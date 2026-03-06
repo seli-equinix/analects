@@ -27,6 +27,7 @@ class TestFullUserLifecycle:
     @pytest.mark.slow
     def test_full_lifecycle(self, cca, trace_test, judge_model):
         """Complete user lifecycle across 5 sessions + REST verification."""
+        tracker = cca.tracker()
         name = f"Lifecycle_{uuid.uuid4().hex[:6]}"
         company = "AcmeSystems"
         sid1 = f"test-life-{uuid.uuid4().hex[:8]}"
@@ -34,6 +35,9 @@ class TestFullUserLifecycle:
         sid3 = f"test-life-{uuid.uuid4().hex[:8]}"
         sid4 = f"test-life-{uuid.uuid4().hex[:8]}"
         sid5 = f"test-life-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(name)
+        for s in (sid1, sid2, sid3, sid4, sid5):
+            tracker.track_session(s)
 
         try:
             # ── Session 1: New user arrives, introduces themselves, codes ──
@@ -208,4 +212,4 @@ class TestFullUserLifecycle:
             )
 
         finally:
-            cca.cleanup_test_user(name)
+            tracker.cleanup()

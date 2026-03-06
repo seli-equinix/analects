@@ -25,9 +25,13 @@ class TestCodeEditFlow:
 
     def test_code_edit_flow(self, cca, trace_test, judge_model):
         """Full dev workflow: create → edit → run → verify actual execution."""
+        tracker = cca.tracker()
         filename = f"test_edit_{uuid.uuid4().hex[:6]}.py"
         user_name = f"EditFlow_{uuid.uuid4().hex[:6]}"
         sid = f"test-edit-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(user_name)
+        tracker.track_session(sid)
+        tracker.track_workspace_prefix(filename.replace(".py", ""))
 
         try:
             # ── Turn 1: Introduce user + create a Python file ──
@@ -129,5 +133,4 @@ class TestCodeEditFlow:
             )
 
         finally:
-            cca.clean_workspace_files(prefix=filename.replace(".py", ""))
-            cca.cleanup_test_user(user_name)
+            tracker.cleanup()

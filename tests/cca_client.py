@@ -487,6 +487,24 @@ class CCAClient:
         except Exception:
             pass  # Best-effort cleanup
 
+    def delete_sessions(self, session_ids: List[str]) -> None:
+        """DELETE /sessions — batch delete sessions from Redis. No tracing."""
+        if not session_ids:
+            return
+        try:
+            self._client.request(
+                "DELETE",
+                f"{self.base_url}/sessions",
+                json={"session_ids": session_ids},
+                timeout=TIMEOUT_DIAGNOSTIC,
+            )
+        except Exception:
+            pass  # Best-effort cleanup
+
+    def tracker(self) -> "TestResourceTracker":
+        """Create a resource tracker for per-test cleanup."""
+        return TestResourceTracker(self)
+
     def search_notes(self, query: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """GET /v1/notes/search — semantic search over extracted notes. No tracing."""
         params: Dict[str, Any] = {"q": query}
@@ -520,3 +538,65 @@ class CCAClient:
             timeout=TIMEOUT_DIAGNOSTIC,
         )
         return resp.json()
+
+
+class TestResourceTracker:
+    """Tracks resources created by a single test for targeted cleanup.
+
+    Each test creates one tracker, registers resources as they are created,
+    and calls cleanup() in its finally: block. Only cleans what was tracked.
+
+    Usage::
+
+        tracker = cca.tracker()
+        tracker.track_user(name)
+        tracker.track_session(session_id)
+        try:
+            ...  # test body
+        finally:
+            tracker.cleanup()
+    """
+
+    def __init__(self, client: CCAClient) -> None:
+        self._client = client
+        self._user_names: List[str] = []
+        self._session_ids: List[str] = []
+        self._workspace_prefixes: List[str] = []
+
+    def track_user(self, name: str) -> None:
+        """Register a user name created by this test."""
+        if name not in self._user_names:
+            self._user_names.append(name)
+
+    def track_session(self, session_id: str) -> None:
+        """Register a session ID created by this test."""
+        if session_id not in self._session_ids:
+            self._session_ids.append(session_id)
+
+    def track_workspace_prefix(self, prefix: str) -> None:
+        """Register a workspace file prefix for cleanup."""
+        if prefix not in self._workspace_prefixes:
+            self._workspace_prefixes.append(prefix)
+
+    def cleanup(self) -> None:
+        """Delete all tracked resources. Best-effort, logs failures."""
+        # 1. Users (cascades to Qdrant profiles, contexts, notes)
+        for name in self._user_names:
+            try:
+                self._client.cleanup_test_user(name)
+            except Exception as e:
+                log.warning("Tracker cleanup user %s: %s", name, e)
+
+        # 2. Sessions (Redis state + trajectory)
+        if self._session_ids:
+            try:
+                self._client.delete_sessions(self._session_ids)
+            except Exception as e:
+                log.warning("Tracker cleanup sessions: %s", e)
+
+        # 3. Workspace files
+        for prefix in self._workspace_prefixes:
+            try:
+                self._client.clean_workspace_files(prefix=prefix)
+            except Exception as e:
+                log.warning("Tracker cleanup workspace %s: %s", prefix, e)

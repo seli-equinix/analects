@@ -24,6 +24,7 @@ class TestProfileCRUD:
 
     def test_profile_crud(self, cca, trace_test, judge_model):
         """Complete profile lifecycle with REST API verification."""
+        tracker = cca.tracker()
         name = f"CRUD_{uuid.uuid4().hex[:6]}"
         company = f"CRUDCorp_{uuid.uuid4().hex[:4]}"
         alias = f"nick_{uuid.uuid4().hex[:4]}"
@@ -31,6 +32,9 @@ class TestProfileCRUD:
         sid2 = f"test-crud2-{uuid.uuid4().hex[:8]}"
         sid3 = f"test-crud3-{uuid.uuid4().hex[:8]}"
         sid4 = f"test-crud4-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(name)
+        for s in (sid1, sid2, sid3, sid4):
+            tracker.track_session(s)
 
         try:
             # ── Session 1: Create user with skills, alias, facts ──
@@ -145,4 +149,4 @@ class TestProfileCRUD:
             assert users_data.get("count", -1) >= 0, "Users endpoint broken"
 
         finally:
-            cca.cleanup_test_user(name)
+            tracker.cleanup()

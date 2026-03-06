@@ -25,9 +25,12 @@ class TestNewUserOnboarding:
 
     def test_new_user_onboarding(self, cca, trace_test, judge_model):
         """Full onboarding: intro → facts stored → context persists → preference set."""
+        tracker = cca.tracker()
         name = f"Onboard_{uuid.uuid4().hex[:6]}"
         company = "OnboardCorp"
         session_id = f"test-onb-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(name)
+        tracker.track_session(session_id)
 
         try:
             # ── Turn 1: Arrive, introduce with name + company + skills ──
@@ -118,6 +121,7 @@ class TestNewUserOnboarding:
 
             # ── Turn 4: New session — verify preference recalled (no re-intro) ──
             sid2 = f"test-onb-{uuid.uuid4().hex[:8]}"
+            tracker.track_session(sid2)
             msg4 = (
                 "Write me a function that reverses a linked list."
             )
@@ -148,4 +152,4 @@ class TestNewUserOnboarding:
             )
 
         finally:
-            cca.cleanup_test_user(name)
+            tracker.cleanup()

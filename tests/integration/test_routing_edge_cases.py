@@ -23,65 +23,77 @@ class TestRoutingEdgeCases:
 
     def test_direct_answer(self, cca, trace_test, judge_model):
         """Simple factual question — should answer without tools."""
+        tracker = cca.tracker()
         sid = f"test-direct-{uuid.uuid4().hex[:8]}"
+        tracker.track_session(sid)
 
-        msg = "What does the acronym REST stand for in web development?"
-        r = cca.chat(msg, session_id=sid)
-        evaluate_response(r, msg, trace_test, judge_model, "integration")
+        try:
+            msg = "What does the acronym REST stand for in web development?"
+            r = cca.chat(msg, session_id=sid)
+            evaluate_response(r, msg, trace_test, judge_model, "integration")
 
-        trace_test.set_attribute("cca.test.response", r.content[:300])
-        assert r.content, "Returned empty"
+            trace_test.set_attribute("cca.test.response", r.content[:300])
+            assert r.content, "Returned empty"
 
-        # Should contain the answer
-        content_lower = r.content.lower()
-        has_answer = any(w in content_lower for w in [
-            "representational", "state", "transfer",
-        ])
-        trace_test.set_attribute("cca.test.has_answer", has_answer)
-        assert has_answer, (
-            f"Response doesn't explain REST: {r.content[:300]}"
-        )
+            # Should contain the answer
+            content_lower = r.content.lower()
+            has_answer = any(w in content_lower for w in [
+                "representational", "state", "transfer",
+            ])
+            trace_test.set_attribute("cca.test.has_answer", has_answer)
+            assert has_answer, (
+                f"Response doesn't explain REST: {r.content[:300]}"
+            )
 
-        # Should be relatively fast (no heavy tool calling)
-        route = r.metadata.get("route", "")
-        iters = r.metadata.get("tool_iterations", 0)
-        trace_test.set_attribute("cca.test.route", route)
-        trace_test.set_attribute("cca.test.iters", iters)
+            # Should be relatively fast (no heavy tool calling)
+            route = r.metadata.get("route", "")
+            iters = r.metadata.get("tool_iterations", 0)
+            trace_test.set_attribute("cca.test.route", route)
+            trace_test.set_attribute("cca.test.iters", iters)
+
+        finally:
+            tracker.cleanup()
 
     def test_planner_route(self, cca, trace_test, judge_model):
         """Multi-step planning question — should engage planning logic."""
+        tracker = cca.tracker()
         sid = f"test-planner-{uuid.uuid4().hex[:8]}"
+        tracker.track_session(sid)
 
-        msg = (
-            "I need to design a CI/CD pipeline for a Python microservices "
-            "project with 5 services. The pipeline should handle testing, "
-            "building Docker images, and deploying to Kubernetes. "
-            "What would be the high-level architecture and steps?"
-        )
-        r = cca.chat(msg, session_id=sid)
-        evaluate_response(r, msg, trace_test, judge_model, "integration")
+        try:
+            msg = (
+                "I need to design a CI/CD pipeline for a Python microservices "
+                "project with 5 services. The pipeline should handle testing, "
+                "building Docker images, and deploying to Kubernetes. "
+                "What would be the high-level architecture and steps?"
+            )
+            r = cca.chat(msg, session_id=sid)
+            evaluate_response(r, msg, trace_test, judge_model, "integration")
 
-        trace_test.set_attribute("cca.test.response", r.content[:500])
-        assert r.content, "Returned empty"
-        assert len(r.content) > 200, (
-            f"Planning response too short ({len(r.content)} chars) — "
-            f"expected detailed breakdown"
-        )
+            trace_test.set_attribute("cca.test.response", r.content[:500])
+            assert r.content, "Returned empty"
+            assert len(r.content) > 200, (
+                f"Planning response too short ({len(r.content)} chars) — "
+                f"expected detailed breakdown"
+            )
 
-        route = r.metadata.get("route", "")
-        trace_test.set_attribute("cca.test.route", route)
+            route = r.metadata.get("route", "")
+            trace_test.set_attribute("cca.test.route", route)
 
-        # Should contain structured planning elements
-        content_lower = r.content.lower()
-        planning_terms = sum(1 for t in [
-            "pipeline", "docker", "kubernetes", "test", "build",
-            "deploy", "stage", "step", "ci", "cd",
-        ] if t in content_lower)
-        trace_test.set_attribute("cca.test.planning_terms", planning_terms)
-        assert planning_terms >= 4, (
-            f"Response lacks planning substance "
-            f"(found {planning_terms} terms): {r.content[:300]}"
-        )
+            # Should contain structured planning elements
+            content_lower = r.content.lower()
+            planning_terms = sum(1 for t in [
+                "pipeline", "docker", "kubernetes", "test", "build",
+                "deploy", "stage", "step", "ci", "cd",
+            ] if t in content_lower)
+            trace_test.set_attribute("cca.test.planning_terms", planning_terms)
+            assert planning_terms >= 4, (
+                f"Response lacks planning substance "
+                f"(found {planning_terms} terms): {r.content[:300]}"
+            )
+
+        finally:
+            tracker.cleanup()
 
     def test_complex_multi_file_project(self, cca, trace_test, judge_model):
         """Complex multi-file project — triggers expert extensions + code execution.
@@ -98,8 +110,11 @@ class TestRoutingEdgeCases:
         Expert output appears as <code_review> and <test_suggestions> XML tags
         injected into the conversation — we soft-check for these.
         """
+        tracker = cca.tracker()
         sid = f"test-complex-{uuid.uuid4().hex[:8]}"
+        tracker.track_session(sid)
         prefix = f"calc_{uuid.uuid4().hex[:6]}"
+        tracker.track_workspace_prefix(prefix)
 
         try:
             # ── Turn 1: Create a multi-file Python project ──
@@ -203,4 +218,4 @@ class TestRoutingEdgeCases:
             )
 
         finally:
-            cca.clean_workspace_files(prefix=prefix)
+            tracker.cleanup()

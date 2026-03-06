@@ -325,67 +325,31 @@ def require_cca_healthy(cca):
 
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup(cca):
-    """Clean up stale test users and workspace files after all tests.
+    """Safety net: log leaked test resources after all tests (no deletions).
 
-    Runs AFTER all tests complete. Sweeps any test users (display_name
-    starts with "TestUser_" or common test prefixes) and workspace files
-    that were left behind by failing tests.
-
-    Individual tests still do their own cleanup in finally: blocks.
-    This is the safety net for when tests crash mid-execution.
+    Each test cleans up its own resources via TestResourceTracker.
+    This fixture only warns about resources that leaked due to test crashes,
+    so developers can fix their test cleanup.
     """
     yield  # All tests run here
 
-    log.info("=== Session cleanup: sweeping stale test data ===")
+    log.info("=== Session cleanup: checking for leaked test resources ===")
 
-    # 1. Delete stale test users (only those older than 5 minutes to avoid
-    #    deleting users that belong to a parallel pytest process still running)
-    stale_cutoff = time.time() - 300  # 5 minutes ago
     try:
         users_data = cca.list_users()
         test_prefixes = (
-            # Flow tests (consolidated)
-            "Onboard_", "Memory_", "CRUD_", "Lifecycle_", "NoteTest_", "EditFlow_", "BashTest_",
-            # Legacy prefixes (safety net for stragglers)
-            "TestUser_", "SkillUser_", "AliasUser_", "AliasChk_",
-            "Aliaschk_", "RmAlias_", "Rmalias_",
-            "RmSkill_", "Rmskill_", "SkillCheck_", "Skillcheck_",
-            "FactUser_", "Factuser_", "MultiFact_", "Multifact_",
-            "PrefUser_", "Prefuser_", "PrefAck_", "Prefack_",
-            "PrefRecall_", "Prefrecall_",
-            "DelUser_", "Deluser_", "DelGone_", "Delgone_",
-            "ViewUser_", "Viewuser_", "ViewData_", "Viewdata_",
-            "UpdateUser_", "ListUser_",
-            "NewUser_", "Newuser_", "NoDup_", "Nodup_",
-            "Greeter_", "Return_", "MetaUser_", "Metauser_",
-            "InferKnown_", "Inferknown_",
-            "CtxUser_", "Ctxuser_", "CtxFacts_", "Ctxfacts_",
-            "CtxEnrich_", "Ctxenrich_",
-            "Persist_", "Recall_",
-            "Overwrite_", "RmFact_", "Rmfact_", "RmPref_", "Rmpref_",
+            "Onboard_", "Memory_", "CRUD_", "Lifecycle_", "NoteTest_",
+            "EditFlow_", "BashTest_", "TestUser_",
         )
-        for user in users_data.get("users", []):
-            name = user.get("display_name", "")
-            if any(name.startswith(p) for p in test_prefixes):
-                user_id = user.get("user_id", "")
-                last_seen = user.get("last_seen", 0)
-                if user_id and last_seen < stale_cutoff:
-                    try:
-                        cca._client.delete(
-                            f"{cca.base_url}/users/{user_id}",
-                            timeout=TIMEOUT_DIAGNOSTIC,
-                        )
-                        log.info("Cleaned stale test user: %s (%s)", name, user_id)
-                    except Exception as e:
-                        log.warning("Failed to clean user %s: %s", name, e)
+        stale = [
+            u.get("display_name", "")
+            for u in users_data.get("users", [])
+            if any(
+                u.get("display_name", "").startswith(p)
+                for p in test_prefixes
+            )
+        ]
+        if stale:
+            log.warning("LEAKED test users (not cleaned by tests): %s", stale)
     except Exception as e:
-        log.warning("Session cleanup: failed to list users: %s", e)
-
-    # 2. Clean workspace files
-    try:
-        result = cca.clean_workspace_files()
-        deleted = result.get("deleted_count", 0)
-        if deleted:
-            log.info("Cleaned %d workspace files: %s", deleted, result.get("deleted", []))
-    except Exception as e:
-        log.warning("Session cleanup: failed to clean workspace: %s", e)
+        log.warning("Session cleanup: failed to check users: %s", e)

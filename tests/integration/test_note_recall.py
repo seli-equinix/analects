@@ -25,10 +25,14 @@ class TestNoteRecall:
 
     def test_note_recall(self, cca, trace_test, judge_model):
         """Session 1: distinctive topic → Session 2: recall it."""
+        tracker = cca.tracker()
         name = f"NoteTest_{uuid.uuid4().hex[:6]}"
         unique_topic = f"Flamingo_{uuid.uuid4().hex[:6]}"
         sid1 = f"test-note1-{uuid.uuid4().hex[:8]}"
         sid2 = f"test-note2-{uuid.uuid4().hex[:8]}"
+        tracker.track_user(name)
+        tracker.track_session(sid1)
+        tracker.track_session(sid2)
 
         try:
             # ── Session 1: Have a distinctive conversation ──
@@ -85,4 +89,4 @@ class TestNoteRecall:
             )
 
         finally:
-            cca.cleanup_test_user(name)
+            tracker.cleanup()
