@@ -68,6 +68,21 @@ def _get_span_id(span) -> Optional[str]:
     return None
 
 
+def _get_trace_id(span) -> Optional[str]:
+    """Extract the OTLP hex trace ID from an OpenTelemetry span.
+
+    Returns 32-char hex string (128-bit trace ID) for Phoenix experiment
+    run linking.
+    """
+    try:
+        ctx = span.get_span_context()
+        if ctx and ctx.trace_id:
+            return format(ctx.trace_id, "032x")
+    except Exception:
+        pass
+    return None
+
+
 def _post_annotation(
     span_id: str,
     name: str,
@@ -538,6 +553,7 @@ def evaluate_response(
         "test_name": test_name,
         "turn": turn,
         "span_id": span_id,
+        "trace_id": _get_trace_id(trace_span),
         "run_judge": judge_model is not None,
         "judge_model": judge_model,
         "code_evals": {k: dict(v) for k, v in evals.items()},
@@ -679,15 +695,18 @@ def run_deferred_experiment(run_judge: bool = False) -> list[dict]:
 
         # 3a. Submit run (pre-collected CCA output)
         try:
+            run_payload = {
+                "dataset_example_id": example_id,
+                "output": {"response": item["response"][:2000]},
+                "repetition_number": 1,
+                "start_time": now,
+                "end_time": now,
+            }
+            if item.get("trace_id"):
+                run_payload["trace_id"] = item["trace_id"]
             run_resp = http.post(
                 f"{PHOENIX_URL}/v1/experiments/{experiment_id}/runs",
-                json={
-                    "dataset_example_id": example_id,
-                    "output": {"response": item["response"][:2000]},
-                    "repetition_number": 1,
-                    "start_time": now,
-                    "end_time": now,
-                },
+                json=run_payload,
             )
             run_resp.raise_for_status()
             run_id = run_resp.json()["data"]["id"]
