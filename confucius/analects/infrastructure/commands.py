@@ -33,9 +33,18 @@ def get_infra_commands() -> Dict[str, str]:
         # ── Container orchestration ──
         "kubectl": "Kubernetes command-line tool",
         "helm": "Kubernetes package manager",
+        "k9s": "Kubernetes TUI dashboard (via SSH to cluster nodes)",
+        "crictl": "CRI-compatible container runtime CLI (via SSH to container hosts)",
+        "ctr": "Containerd CLI (via SSH to container hosts)",
         # ── System administration ──
         "sudo": "Execute a command as another user",
         "su": "Switch user",
+        # ── systemd tools (via SSH — not available inside containers) ──
+        "systemctl": "Manage systemd services (via SSH to host nodes — no systemd in container)",
+        "journalctl": "Query systemd journal logs (via SSH to host nodes)",
+        "hostnamectl": "Query/set hostname (via SSH to host nodes)",
+        "timedatectl": "Query/set time and date (via SSH to host nodes)",
+        "loginctl": "Control systemd login manager (via SSH to host nodes)",
         # ── Network tools ──
         "ss": "Show socket statistics (replacement for netstat)",
         "ip": "Show/manipulate routing, network devices, interfaces",
@@ -48,6 +57,8 @@ def get_infra_commands() -> Dict[str, str]:
         "iptables": "IPv4 packet filter administration",
         "ip6tables": "IPv6 packet filter administration",
         "nft": "Nftables packet filter administration",
+        "firewall-cmd": "FirewallD CLI (via SSH to hosts running firewalld)",
+        "brctl": "Ethernet bridge administration",
         "ethtool": "Display and change ethernet device settings",
         "ifconfig": "Configure network interface (legacy)",
         "route": "Show/manipulate IP routing table (legacy)",
@@ -79,6 +90,8 @@ def get_infra_commands() -> Dict[str, str]:
         "lsusb": "List USB devices",
         "lsblk": "List block devices",
         "nvidia-smi": "NVIDIA GPU info (via SSH: sshpass -p '...' ssh seli@<gpu-node> nvidia-smi)",
+        "dmidecode": "Hardware BIOS/DMI info (via SSH — needs privileged access on host)",
+        "sensors": "Hardware temperature/voltage sensors (via SSH — needs /sys access on host)",
         "dmesg": "Print kernel ring buffer messages",
         "who": "Show who is logged on",
         "w": "Show who is logged on and what they are doing",
@@ -108,6 +121,7 @@ def get_infra_commands() -> Dict[str, str]:
         "apt-get": "APT package handling utility (low-level)",
         "apt-cache": "APT package cache query tool",
         "dpkg": "Debian package manager",
+        "snap": "Snap package manager (via SSH to host nodes — snapd not in container)",
         # ── Cron & scheduling ──
         "crontab": "Maintain crontab files for individual users",
         "at": "Schedule commands for later execution",
@@ -115,6 +129,7 @@ def get_infra_commands() -> Dict[str, str]:
         "logger": "Make entries in the system log",
         # ── TLS / certificates ──
         "openssl": "SSL/TLS utility (certificate operations, testing)",
+        "certbot": "Let's Encrypt certificate management",
         "step": "Step CLI for certificate authority operations",
         # ── Cluster-specific ──
         "gluster": "GlusterFS CLI (via SSH to Swarm nodes — not installed locally)",

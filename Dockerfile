@@ -56,6 +56,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ── File utilities ──
     tree \
     file \
+    # ── Build tools & compilers ──
+    cmake \
+    # ── Bridge & firewall (infra) ──
+    bridge-utils \
+    # ── Hardware diagnostics (infra, may need privileged) ──
+    dmidecode \
+    lm-sensors \
+    # ── Certificate management ──
+    certbot \
     && rm -rf /var/lib/apt/lists/*
 
 # Install tree-sitter CLI (needed for PowerShell grammar generation)
@@ -90,6 +99,42 @@ RUN ARCH=$(dpkg --print-architecture) && \
     ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh && \
     rm /tmp/pwsh.tar.gz && \
     pwsh -v
+
+# Go programming language
+ARG GO_VERSION=1.24.1
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
+      -o /tmp/go.tar.gz && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \
+    ln -s /usr/local/go/bin/go /usr/local/bin/go && \
+    rm /tmp/go.tar.gz && \
+    go version
+
+# Rust toolchain (cargo + rustc)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal && \
+    ln -s /root/.cargo/bin/cargo /usr/local/bin/cargo && \
+    ln -s /root/.cargo/bin/rustc /usr/local/bin/rustc && \
+    cargo --version && rustc --version
+
+# Node.js ecosystem tools — yarn, pnpm, bun, TypeScript
+RUN npm install -g yarn pnpm typescript && \
+    yarn --version && pnpm --version && tsc --version
+
+# Bun — fast JavaScript runtime (multi-arch)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; \
+    else BUN_ARCH="x64"; fi && \
+    curl -fsSL "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-${BUN_ARCH}.zip" \
+      -o /tmp/bun.zip && \
+    unzip -o /tmp/bun.zip -d /tmp/bun && \
+    mv /tmp/bun/bun-linux-${BUN_ARCH}/bun /usr/local/bin/bun && \
+    chmod +x /usr/local/bin/bun && \
+    rm -rf /tmp/bun /tmp/bun.zip && \
+    bun --version
+
+# yq — YAML/XML/TOML processor
+RUN pip install --no-cache-dir yq
 
 # Build tree-sitter language grammars (Python, Bash, PowerShell, YAML, Markdown)
 COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.py

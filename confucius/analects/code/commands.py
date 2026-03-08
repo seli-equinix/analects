@@ -68,6 +68,7 @@ def get_allowed_commands() -> Dict[str, str]:
         "expand": "Convert tabs to spaces",
         # ── Data processing ──
         "jq": "Command-line JSON processor",
+        "yq": "Command-line YAML/XML/TOML processor",
         "base64": "Encode or decode base64 data",
         "iconv": "Convert text between character encodings",
         "strings": "Print printable strings from binary files",
@@ -131,9 +132,18 @@ def get_allowed_commands() -> Dict[str, str]:
         "node": "Node.js JavaScript runtime",
         "npm": "Node.js package manager",
         "npx": "Execute npm package binaries",
+        "yarn": "Alternative Node.js package manager",
+        "pnpm": "Fast, disk-efficient package manager",
+        "bun": "Fast JavaScript runtime and package manager",
         "tsc": "TypeScript compiler",
         # ── Build tools & compilers ──
         "make": "Build automation tool",
+        "cmake": "Cross-platform build system generator",
         "gcc": "GNU C compiler",
         "g++": "GNU C++ compiler",
+        # ── Go ──
+        "go": "Go programming language tool",
+        # ── Rust ──
+        "cargo": "Rust package manager and build tool",
+        "rustc": "Rust compiler",
     }
