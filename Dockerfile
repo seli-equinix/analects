@@ -110,11 +110,14 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm /tmp/go.tar.gz && \
     go version
 
-# Rust toolchain (cargo + rustc)
+# Rust toolchain (cargo + rustc) — install to /opt so all users can access
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal && \
-    ln -s /root/.cargo/bin/cargo /usr/local/bin/cargo && \
-    ln -s /root/.cargo/bin/rustc /usr/local/bin/rustc && \
+    chmod -R a+rX /opt/rust && \
+    ln -s /opt/rust/cargo/bin/cargo /usr/local/bin/cargo && \
+    ln -s /opt/rust/cargo/bin/rustc /usr/local/bin/rustc && \
     cargo --version && rustc --version
 
 # Node.js ecosystem tools — yarn, pnpm, bun, TypeScript
