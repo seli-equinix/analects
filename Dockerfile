@@ -86,6 +86,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
       -o /tmp/pwsh.tar.gz && \
     mkdir -p /opt/microsoft/powershell/7 && \
     tar xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 && \
+    chmod +x /opt/microsoft/powershell/7/pwsh && \
     ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh && \
     rm /tmp/pwsh.tar.gz && \
     pwsh -v
