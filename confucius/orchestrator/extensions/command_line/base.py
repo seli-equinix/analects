@@ -254,7 +254,7 @@ class CommandLineExtension(TagWithIDExtension, ToolUseExtension):
             for cmd in result.disallowed:
                 if cmd.startswith("./") or cmd.startswith("/"):
                     result.allowed.add("script")  # Mark as allowed script
-                elif cmd == ".":
+                elif cmd == "." or cmd.startswith(". "):
                     result.allowed.add("source")  # Dot is alias for source
                 else:
                     non_path.add(cmd)
