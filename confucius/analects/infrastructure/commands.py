@@ -33,15 +33,7 @@ def get_infra_commands() -> Dict[str, str]:
         # ── Container orchestration ──
         "kubectl": "Kubernetes command-line tool",
         "helm": "Kubernetes package manager",
-        "k9s": "Kubernetes TUI dashboard",
-        "crictl": "CRI-compatible container runtime CLI",
-        "ctr": "Containerd CLI",
         # ── System administration ──
-        "systemctl": "Manage systemd services (status, start, stop, restart, enable, disable)",
-        "journalctl": "Query systemd journal logs",
-        "hostnamectl": "Query and change the system hostname (systemd)",
-        "timedatectl": "Control the system time and date (systemd)",
-        "loginctl": "Control the systemd login manager",
         "sudo": "Execute a command as another user",
         "su": "Switch user",
         # ── Network tools ──
@@ -56,11 +48,9 @@ def get_infra_commands() -> Dict[str, str]:
         "iptables": "IPv4 packet filter administration",
         "ip6tables": "IPv6 packet filter administration",
         "nft": "Nftables packet filter administration",
-        "firewall-cmd": "Firewalld command-line client",
         "ethtool": "Display and change ethernet device settings",
         "ifconfig": "Configure network interface (legacy)",
         "route": "Show/manipulate IP routing table (legacy)",
-        "brctl": "Ethernet bridge administration (legacy)",
         "nmcli": "NetworkManager command-line interface",
         "resolvectl": "Resolve domain names, DNS records (systemd)",
         "tcpdump": "Dump traffic on a network (packet capture)",
@@ -88,9 +78,7 @@ def get_infra_commands() -> Dict[str, str]:
         "lspci": "List PCI devices",
         "lsusb": "List USB devices",
         "lsblk": "List block devices",
-        "dmidecode": "DMI/SMBIOS table decoder (hardware info)",
-        "sensors": "Show hardware sensor readings (lm-sensors)",
-        "nvidia-smi": "NVIDIA GPU management and monitoring",
+        "nvidia-smi": "NVIDIA GPU info (via SSH: sshpass -p '...' ssh seli@<gpu-node> nvidia-smi)",
         "dmesg": "Print kernel ring buffer messages",
         "who": "Show who is logged on",
         "w": "Show who is logged on and what they are doing",
@@ -120,7 +108,6 @@ def get_infra_commands() -> Dict[str, str]:
         "apt-get": "APT package handling utility (low-level)",
         "apt-cache": "APT package cache query tool",
         "dpkg": "Debian package manager",
-        "snap": "Snap package manager",
         # ── Cron & scheduling ──
         "crontab": "Maintain crontab files for individual users",
         "at": "Schedule commands for later execution",
@@ -129,9 +116,8 @@ def get_infra_commands() -> Dict[str, str]:
         # ── TLS / certificates ──
         "openssl": "SSL/TLS utility (certificate operations, testing)",
         "step": "Step CLI for certificate authority operations",
-        "certbot": "Let's Encrypt certificate management",
         # ── Cluster-specific ──
-        "gluster": "GlusterFS CLI for volume management",
+        "gluster": "GlusterFS CLI (via SSH to Swarm nodes — not installed locally)",
     })
 
     return commands

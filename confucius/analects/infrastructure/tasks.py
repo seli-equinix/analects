@@ -38,6 +38,35 @@ Environment
 - **Nextcloud**: File sync with MariaDB
 - **GlusterFS**: Shared storage across Swarm nodes (/mnt/glusterfs/)
 
+## Local Services (this node — Spark1)
+
+These services run as Docker containers on THIS machine. Check them directly without SSH:
+
+| Service | Container | Port | Quick Check |
+|---------|-----------|------|-------------|
+| Redis | redis-memory | 6379 | `redis-cli -h 127.0.0.1 -a Loveme-sex64 ping` → PONG |
+| Qdrant | qdrant | 6333 | `curl -s http://127.0.0.1:6333/collections \| jq .` |
+| Embedding | qwen3-embedding | 8200 | `curl -s http://127.0.0.1:8200/health` |
+| SearXNG | searxng | 8888 | `curl -s http://127.0.0.1:8888/healthz` |
+| vLLM Note-taker | vllm-notetaker | 8400 | `curl -s http://127.0.0.1:8400/health` |
+| CCA (self) | cca | 8500 | `curl -s http://127.0.0.1:8500/health` |
+
+Redis password: `Loveme-sex64` (all environments)
+
+Container status: `docker ps --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'`
+Container logs: `docker logs --tail 50 <container-name>`
+
+### Remote Services
+| Service | Location | Quick Check |
+|---------|----------|-------------|
+| vLLM (main LLM) | Spark2:8000 | `curl -s http://192.168.4.208:8000/health` |
+| Memgraph | node3:7687 | `curl -s http://192.168.4.202:7687` |
+
+### Important
+- This container runs with host networking — `127.0.0.1` reaches host services directly.
+- `systemctl` is NOT available (no systemd in container). Use `docker ps`/`docker logs` instead.
+- For GPU status on remote nodes: `sshpass -p 'Loveme-sex64' ssh seli@192.168.4.208 nvidia-smi`
+
 ### SSH Access to Standalone Nodes
 ```bash
 sshpass -p 'Loveme-sex64' ssh -o StrictHostKeyChecking=no seli@<IP> "command"

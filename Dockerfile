@@ -18,20 +18,44 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies (infra expert needs SSH, Docker CLI, network tools)
-# tree-sitter needs build-essential, nodejs, npm for grammar compilation
+# System dependencies — organized by role.
+# Everything installed directly (no mounts) for portability.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # ── Base development ──
     git \
     curl \
-    sshpass \
-    openssh-client \
-    docker.io \
-    iputils-ping \
-    dnsutils \
-    net-tools \
+    wget \
     build-essential \
     nodejs \
     npm \
+    # ── Remote access (infra expert) ──
+    sshpass \
+    openssh-client \
+    rsync \
+    # ── Container management ──
+    docker.io \
+    # ── Process & system diagnostics ──
+    procps \
+    # ── Network diagnostics ──
+    iproute2 \
+    iputils-ping \
+    dnsutils \
+    net-tools \
+    netcat-openbsd \
+    traceroute \
+    # ── Database CLIs ──
+    redis-tools \
+    # ── Data processing ──
+    jq \
+    bc \
+    # ── Archive/compression ──
+    zip \
+    unzip \
+    # ── Disk/storage inspection ──
+    lsof \
+    # ── File utilities ──
+    tree \
+    file \
     && rm -rf /var/lib/apt/lists/*
 
 # Install tree-sitter CLI (needed for PowerShell grammar generation)
@@ -40,6 +64,31 @@ RUN npm install -g tree-sitter-cli@0.20.8
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Python development tools — agent can lint, test, format user code in /workspace
+RUN pip install --no-cache-dir \
+    pytest \
+    mypy \
+    ruff \
+    black \
+    flake8 \
+    isort \
+    coverage \
+    uv
+
+# PowerShell 7 — agent can execute .ps1 scripts in /workspace
+# Multi-arch: detects ARM64 vs AMD64 at build time
+ARG PS_VERSION=7.5.4
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then PS_ARCH="linux-arm64"; \
+    else PS_ARCH="linux-x64"; fi && \
+    curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PS_VERSION}/powershell-${PS_VERSION}-${PS_ARCH}.tar.gz" \
+      -o /tmp/pwsh.tar.gz && \
+    mkdir -p /opt/microsoft/powershell/7 && \
+    tar xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 && \
+    ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh && \
+    rm /tmp/pwsh.tar.gz && \
+    pwsh -v
 
 # Build tree-sitter language grammars (Python, Bash, PowerShell, YAML, Markdown)
 COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.py

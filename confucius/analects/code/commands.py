@@ -68,7 +68,6 @@ def get_allowed_commands() -> Dict[str, str]:
         "expand": "Convert tabs to spaces",
         # ── Data processing ──
         "jq": "Command-line JSON processor",
-        "yq": "Command-line YAML/XML/TOML processor",
         "base64": "Encode or decode base64 data",
         "iconv": "Convert text between character encodings",
         "strings": "Print printable strings from binary files",
@@ -126,20 +125,15 @@ def get_allowed_commands() -> Dict[str, str]:
         "isort": "Sort Python imports",
         "uv": "Fast Python package manager (Rust-based)",
         "coverage": "Python code coverage measurement",
+        # ── PowerShell ──
+        "pwsh": "PowerShell 7 — execute .ps1 scripts and modules",
         # ── Node.js / JavaScript ──
         "node": "Node.js JavaScript runtime",
         "npm": "Node.js package manager",
         "npx": "Execute npm package binaries",
-        "yarn": "Alternative Node.js package manager",
-        "bun": "Fast JavaScript runtime and package manager",
-        "pnpm": "Fast, disk-efficient package manager",
         "tsc": "TypeScript compiler",
         # ── Build tools & compilers ──
         "make": "Build automation tool",
-        "cmake": "Cross-platform build system generator",
         "gcc": "GNU C compiler",
         "g++": "GNU C++ compiler",
-        "go": "Go programming language tool",
-        "cargo": "Rust package manager and build tool",
-        "rustc": "Rust compiler",
     }
