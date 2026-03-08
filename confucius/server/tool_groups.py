@@ -114,7 +114,7 @@ ROUTE_TOOL_GROUPS: Dict[ExpertType, List[ToolGroup]] = {
 
 _BASE_MAX_ITERATIONS: Dict[ExpertType, int] = {
     ExpertType.USER: 10,
-    ExpertType.CODER: 20,
+    ExpertType.CODER: 30,
     ExpertType.INFRASTRUCTURE: 30,
     ExpertType.SEARCH: 15,
     ExpertType.PLANNER: 10,
@@ -129,8 +129,11 @@ def get_max_iterations(route: RouteDecision) -> int:
 
     Simple tasks (estimated_steps <= 3) get a low cap to prevent
     over-iteration on one-liners and short functions.
-    Formula: max(base, min(estimated_steps * 2, 200)).
-    The base per-route value acts as a floor for that route type.
+    Formula: max(base, min(estimated_steps * 3, 200)).
+    The 3x multiplier accounts for debug cycles in coding tasks
+    (run → error → fix → rerun burns ~3 iters per cycle).
+    The error circuit breaker (5 consecutive errors → force stop)
+    already prevents infinite loops, so this cap is mainly for cost.
 
     SEARCH route uses direct 35B (no 8B research phase). Correct flow:
     iter 0 (parallel web_search) → iter 1 (fetch_url_content) → iter 2
@@ -144,7 +147,7 @@ def get_max_iterations(route: RouteDecision) -> int:
         return 8
     if route.is_simple:  # estimated_steps <= 3
         return _SIMPLE_MAX_ITERATIONS
-    from_steps = route.estimated_steps * 2
+    from_steps = route.estimated_steps * 3
     return max(base, min(from_steps, 200))
 
 
