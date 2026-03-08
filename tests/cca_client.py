@@ -53,6 +53,20 @@ class ChatResult:
         self.metadata: Dict[str, Any] = raw.get("context_metadata", {}) or {}
 
     @property
+    def tool_labels(self) -> List[str]:
+        """All SSE comment labels from the stream (progress + errors)."""
+        return self.raw.get("tool_labels", [])
+
+    @property
+    def tool_errors(self) -> List[str]:
+        """SSE labels that indicate tool failures."""
+        error_keywords = ("failed", "error", "invalid", "not allowed", "disallowed")
+        return [
+            lbl for lbl in self.tool_labels
+            if any(kw in lbl.lower() for kw in error_keywords)
+        ]
+
+    @property
     def user_identified(self) -> bool:
         return self.metadata.get("user_identified", False)
 
@@ -77,6 +91,9 @@ class ChatResult:
             meta_parts.append("nudge_skipped")
         if self.metadata.get("circuit_breaker_fired"):
             meta_parts.append("CB_FIRED")
+        errors = self.tool_errors
+        if errors:
+            meta_parts.append(f"TOOL_ERRORS={len(errors)}")
         return f"ChatResult({', '.join(meta_parts)}: {preview!r})"
 
 
@@ -282,6 +299,7 @@ class CCAClient:
         """
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        tool_labels: list[str] = []  # SSE comment labels (progress, errors)
         completion_id = ""
         model = ""
         finish_reason = ""
@@ -320,9 +338,13 @@ class CCAClient:
                     if not line.strip():
                         continue
 
-                    # SSE comments (keepalive, progress) — skip but they
-                    # reset the read timeout, which is the whole point
+                    # SSE comments (keepalive, progress) — capture for
+                    # tool error reporting, then continue. They also
+                    # reset the read timeout, which is the whole point.
                     if line.startswith(":"):
+                        label = line[1:].strip()
+                        if label:  # skip empty keepalives
+                            tool_labels.append(label)
                         continue
 
                     if not line.startswith("data: "):
@@ -403,6 +425,7 @@ class CCAClient:
             ],
             "usage": {},
             "context_metadata": context_metadata,
+            "tool_labels": tool_labels,
         }
         return ChatResult(raw, 0)
 

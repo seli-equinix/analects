@@ -89,6 +89,7 @@ def get_allowed_commands() -> Dict[str, str]:
         "curl": "Transfer data from or to a server",
         "wget": "Non-interactive network downloader",
         # ── Shell & scripting ──
+        "cd": "Change working directory",
         "bash": "GNU Bourne Again SHell",
         "sh": "POSIX shell",
         "which": "Locate a command on PATH",

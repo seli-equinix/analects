@@ -2,8 +2,10 @@
 # pyre-strict
 
 
-from bashlex import ast, parser
+from bashlex import ast, errors as bashlex_errors, parser
 from pydantic import BaseModel, Field
+
+from .exceptions import InvalidCommandLineInput
 
 
 def is_subcommand(potential_subcommand: str, command_line: str) -> bool:
@@ -180,9 +182,21 @@ def get_command_tokens_from_bash(command: str) -> list[list[str]]:
     From a bash script which might contain multiple command calls,
     get all of the commands called (including subcommands, flags, etc.)
 
+    Raises InvalidCommandLineInput with a clear hint if bashlex cannot
+    parse the command (e.g. heredoc syntax, which bashlex doesn't support).
     """
+    try:
+        trees = parser.parse(command)
+    except bashlex_errors.ParsingError as e:
+        hint = (
+            "HINT: Use echo, printf, or the str_replace_editor tool "
+            "instead of heredoc (<<EOF) syntax. Heredocs are not supported "
+            "in this environment."
+        )
+        raise InvalidCommandLineInput(
+            f"Could not parse bash command: {e}. {hint}"
+        ) from e
 
-    trees = parser.parse(command)
     visitor = _NodeVisitor()
 
     for tree in trees:

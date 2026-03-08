@@ -234,6 +234,35 @@ def eval_iteration_efficiency(result: ChatResult) -> Optional[Dict[str, Any]]:
     }
 
 
+def eval_tool_errors(result: ChatResult) -> Optional[Dict[str, Any]]:
+    """Score 0.0 if any tool execution errors occurred during the response.
+
+    Captures SSE comment labels that indicate tool failures (validation
+    errors, command failures, parsing errors). Surfaces these prominently
+    so they don't get lost in test output.
+    """
+    errors = getattr(result, "tool_errors", [])
+    if not errors:
+        return {
+            "name": "tool_errors",
+            "annotator_kind": "CODE",
+            "score": SCORE_PASS,
+            "label": "clean",
+            "explanation": "No tool errors",
+        }
+    # Truncate to first 5 errors for readability
+    error_summary = "; ".join(errors[:5])
+    if len(errors) > 5:
+        error_summary += f" (+{len(errors) - 5} more)"
+    return {
+        "name": "tool_errors",
+        "annotator_kind": "CODE",
+        "score": SCORE_FAIL,
+        "label": f"{len(errors)}_errors",
+        "explanation": error_summary,
+    }
+
+
 def eval_user_identified(result: ChatResult) -> Optional[Dict[str, Any]]:
     """Score 1.0 if user_identified flag is True in response metadata."""
     identified = result.user_identified
@@ -522,6 +551,11 @@ def evaluate_response(
     if ev is not None:
         evals[ev["name"]] = ev
 
+    # Tool errors — always run (advisory, surfaces SSE error labels)
+    ev = eval_tool_errors(result)
+    if ev is not None:
+        evals[ev["name"]] = ev
+
     # Code presence — only for tests that involve code
     if category in ("user", "integration"):
         ev = eval_code_present(result)
@@ -534,9 +568,20 @@ def evaluate_response(
         if ev is not None:
             evals[ev["name"]] = ev
 
+    # --- Surface tool errors prominently in test output ---
+    tool_errors = getattr(result, "tool_errors", [])
+    if tool_errors:
+        log.warning(
+            "TOOL ERRORS detected (%d): %s",
+            len(tool_errors),
+            "; ".join(tool_errors[:5]),
+        )
+
     # --- Set OpenInference I/O so Phoenix shows input/output columns ---
     trace_span.set_attribute("input.value", message)
     trace_span.set_attribute("output.value", result.content)
+    if tool_errors:
+        trace_span.set_attribute("cca.eval.tool_errors", "; ".join(tool_errors[:10]))
 
     # --- Log to span attributes (for filtering) ---
     for ev in evals.values():
@@ -612,6 +657,9 @@ def evaluate_response(
             continue
         # Iteration efficiency is advisory.
         if ev["name"] == "iteration_efficiency":
+            continue
+        # Tool errors are advisory — surfaced for visibility, not gating.
+        if ev["name"] == "tool_errors":
             continue
         raise AssertionError(
             f"Code evaluator '{ev['name']}' FAILED: "

@@ -92,5 +92,10 @@ COMMAND_LINE_BASH_SCRIPT_TOOL_USE_DESCRIPTION: str = dedent(
     - Use proper bash syntax and indentation
     - Add comments when necessary to explain complex operations
     - Follow bash best practices for error handling and variable usage
+    - NEVER use heredoc syntax (<<EOF, <<'EOF', <<-EOF). The bash parser does not support heredocs.
+      Instead, use one of these alternatives:
+      * `printf 'line1\\nline2\\n' > file.txt` — for multi-line file content
+      * `echo 'content' > file.txt` — for single-line content
+      * `str_replace_editor` tool — PREFERRED for creating or editing files with multi-line content
     """
 )
