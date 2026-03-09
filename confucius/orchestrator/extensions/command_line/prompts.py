@@ -92,8 +92,7 @@ COMMAND_LINE_BASH_SCRIPT_TOOL_USE_DESCRIPTION: str = dedent(
     - Use proper bash syntax and indentation
     - Add comments when necessary to explain complex operations
     - Follow bash best practices for error handling and variable usage
-    - NEVER use heredoc syntax (<<EOF, <<'EOF', <<-EOF). The bash parser does not support heredocs.
-    - To CREATE or EDIT files: ALWAYS use the `str_replace_editor` tool. Do NOT use printf, echo, or cat to write code files — escape sequences like \\n get mangled and produce broken code.
+    - To CREATE or EDIT files: ALWAYS use the `str_replace_editor` tool. Do NOT use printf, echo, cat with heredoc, or other bash tricks to write code files — escape sequences get mangled and produce broken code.
     - The bash tool is for RUNNING commands and scripts, not for writing file content.
     """
 )

@@ -20,10 +20,11 @@ from ..tags import Tag
 # When these patterns appear in exception messages, append a HINT
 # so the LLM self-corrects instead of retrying the same broken approach.
 _ERROR_HINTS: list[tuple[str, str]] = [
-    ("here-document", "Use echo, printf, or the write_file tool instead of heredoc syntax."),
-    ("heredoc", "Use echo, printf, or the write_file tool instead of heredoc syntax."),
+    ("here-document", "Use the str_replace_editor tool to write file content instead of heredoc syntax."),
+    ("heredoc", "Use the str_replace_editor tool to write file content instead of heredoc syntax."),
     ("jsondecode", "Simplify your JSON input — avoid nested quotes and special characters."),
     ("unterminated string", "Check for unclosed quotes in your command."),
+    ("unexpected eof", "Check for unclosed quotes or brackets in your command."),
 ]
 
 

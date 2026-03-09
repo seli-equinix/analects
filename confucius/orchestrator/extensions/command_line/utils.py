@@ -1,11 +1,17 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
 
+import logging
 
-from bashlex import ast, errors as bashlex_errors, parser
 from pydantic import BaseModel, Field
 
 from .exceptions import InvalidCommandLineInput
+from .tree_sitter_extractor import (
+    extract_commands_tree_sitter,
+    fallback_extract_commands,
+)
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def is_subcommand(potential_subcommand: str, command_line: str) -> bool:
@@ -138,68 +144,44 @@ def _command_matches_allowed_command(
     return True
 
 
-class _NodeVisitor(ast.nodevisitor):
-    def __init__(self) -> None:
-        self.commands: list[list[str]] = []
-
-    def visitcommand(self, n: ast.node, parts: list[ast.node]) -> None:
-        command_tokens = []
-
-        for part in parts:
-            # pyre-ignore[16]: `ast.node` has no attribute `kind`
-            if part.kind == "word":
-                # pyre-ignore[16]: `ast.node` has no attribute `word`
-                command_tokens.append(part.word)
-            elif command_tokens:
-                # We've hit a non-word after collecting words, so we're done with this command
-                break
-
-        if command_tokens:
-            self.commands.append(command_tokens)
-
-    def visitredirect(
-        self, n: ast.node, input: None, type: None, output: None, heredoc: None
-    ) -> None:
-        # Redirecting output can be abused by the agent to overwrite sensitive
-        # files. However some agents depend on output redirection for their
-        # standard workflows. So this feature needs to be gated. For now, just
-        # commenting it out to unblock.
-        pass
-        # raise InvalidCommandLineInput(
-        #     dedent("""\
-        #     <warning title="Bash shell output redirect not allowed">
-        #         Redirecting the output of a command is not allowed, as this can be
-        #         used to bypass safeguards for preventing overwriting sensitive
-        #         files. Please use a different approach to capture the output of the
-        #         command.\
-        #     </warning>
-        # """)
-        # )
-
-
 def get_command_tokens_from_bash(command: str) -> list[list[str]]:
     """
     From a bash script which might contain multiple command calls,
     get all of the commands called (including subcommands, flags, etc.)
 
-    Raises InvalidCommandLineInput with a clear hint if bashlex cannot
-    parse the command (e.g. heredoc syntax, which bashlex doesn't support).
+    Uses tree-sitter-bash for robust parsing that handles heredocs,
+    pipelines, process substitution, and all bash constructs.
+
+    Falls back to regex/shlex extraction if tree-sitter is unavailable
+    (e.g. outside Docker where the .so library isn't compiled).
     """
     try:
-        trees = parser.parse(command)
-    except bashlex_errors.ParsingError as e:
-        hint = (
-            "HINT: Use echo, printf, or the str_replace_editor tool "
-            "instead of heredoc (<<EOF) syntax. Heredocs are not supported "
-            "in this environment."
+        commands = extract_commands_tree_sitter(command)
+        if commands:
+            return commands
+
+        # tree-sitter parsed but found no commands (bare assignment, empty)
+        logger.debug("tree-sitter found no commands in: %s", command[:100])
+        commands = fallback_extract_commands(command)
+        if commands:
+            return commands
+        return []
+
+    except Exception as e:
+        # tree-sitter library not loaded (outside Docker) or other failure
+        logger.warning(
+            "tree-sitter bash parsing failed, using fallback: %s", e
         )
+        try:
+            commands = fallback_extract_commands(command)
+            if commands:
+                return commands
+        except Exception as fallback_err:
+            logger.error(
+                "Fallback extraction also failed: %s", fallback_err
+            )
+
         raise InvalidCommandLineInput(
-            f"Could not parse bash command: {e}. {hint}"
+            f"Could not parse bash command: {e}. "
+            "The command may contain syntax that cannot be parsed."
         ) from e
-
-    visitor = _NodeVisitor()
-
-    for tree in trees:
-        visitor.visit(tree)
-
-    return visitor.commands
