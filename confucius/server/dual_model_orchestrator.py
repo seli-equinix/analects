@@ -75,6 +75,13 @@ STALL_REPEAT_THRESHOLD = 2
 # This is a backstop, not a normal limit — good research may need many iterations.
 MAX_CONSECUTIVE_8B_RESEARCH = 8
 
+# Dynamic iteration extension: if the agent is making progress (no
+# consecutive errors), auto-extend the limit in chunks.  The error
+# circuit breaker (ERROR_STOP_THRESHOLD) already catches loops — this
+# cap is a last-resort safety net, not the primary stopping mechanism.
+PROGRESS_EXTENSION_CHUNK = 10
+ABSOLUTE_MAX_ITERATIONS = 200
+
 # Max 8B→80B research cycles before forcing a final answer.
 # Each cycle = 8B does research → 80B evaluates → 80B calls more tools → repeat.
 # After this many cycles, a "stop researching" message is injected.
@@ -554,6 +561,26 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         break
 
         while True:
+            # Dynamic iteration extension: if the agent is near the limit
+            # but still making progress (no consecutive errors), extend it.
+            # The error circuit breaker handles loops — this cap is a safety net.
+            if (
+                self.max_iterations is not None
+                and self._num_iterations >= self.max_iterations - 2
+                and self._total_consecutive_errors == 0
+                and self.max_iterations < ABSOLUTE_MAX_ITERATIONS
+            ):
+                new_limit = min(
+                    self.max_iterations + PROGRESS_EXTENSION_CHUNK,
+                    ABSOLUTE_MAX_ITERATIONS,
+                )
+                logger.info(
+                    "Progress extension: %d → %d iterations "
+                    "(agent making progress, no consecutive errors)",
+                    self.max_iterations, new_limit,
+                )
+                self.max_iterations = new_limit
+
             # BaseOrchestrator: max_iterations check → get_root_tag() → LLM call
             try:
                 await super()._process_messages(task, context)
