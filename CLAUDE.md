@@ -258,8 +258,8 @@ Incoming HTTP requests are classified by a small Functionary model (8B, Q4_0) ru
 | Property | Value |
 |----------|-------|
 | **Model** | `functionary-small-v3.2.Q4_0.gguf` (4.34GB) |
-| **Server** | llama.cpp `server-cuda` b8124 on node5 (192.168.4.204:8001) |
-| **GPU** | RTX 5070 SM120, ~115 tok/s generation |
+| **Server** | llama.cpp `server-cuda` on Spark1 (192.168.4.205:8001), built from source for ARM64+CUDA SM121 |
+| **GPU** | GB10 SM121 |
 | **Template** | Custom Jinja from HuggingFace `meetkai/functionary-small-v3.2` |
 | **Config** | `config.toml` `[router]` section |
 
@@ -290,7 +290,7 @@ Incoming HTTP requests are classified by a small Functionary model (8B, Q4_0) ru
 ```toml
 [router]
 enabled = true
-url = "http://192.168.4.204:8001"
+url = "http://192.168.4.205:8001"
 timeout_ms = 10000
 fallback_entry = "coder"
 temperature = 0.1

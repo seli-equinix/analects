@@ -11,7 +11,7 @@ Infrastructure (all on Spark1 unless noted):
 - Qdrant:     192.168.4.205:6333  (vector search)
 - Embedding:  192.168.4.205:8200  (Qwen3-Embedding-8B, 4096 dims)
 - Redis:      192.168.4.205:6379  (session data, reused from UserSessionManager)
-- Memgraph:   192.168.4.202:7687  (code knowledge graph, on node3)
+- Memgraph:   192.168.4.205:7687  (code knowledge graph)
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_QDRANT_URL: str = os.getenv("QDRANT_URL", "http://192.168.4.205:6333")
 DEFAULT_EMBEDDING_URL: str = os.getenv("EMBEDDING_URL", "http://192.168.4.205:8200")
-DEFAULT_MEMGRAPH_HOST: str = os.getenv("MEMGRAPH_HOST", "192.168.4.202")
+DEFAULT_MEMGRAPH_HOST: str = os.getenv("MEMGRAPH_HOST", "192.168.4.205")
 DEFAULT_MEMGRAPH_PORT: int = int(os.getenv("MEMGRAPH_PORT", "7687"))
 
 EMBEDDING_DIMS: int = 4096

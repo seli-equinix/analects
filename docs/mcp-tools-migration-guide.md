@@ -695,7 +695,7 @@ elif query_type == "call_chain":
     results = await graph_adapter.get_call_chain(function_name, depth, direction, project, limit)
 ```
 
-**Backend**: Memgraph (192.168.4.202:7687) via `memgraph_adapter.py`
+**Backend**: Memgraph (192.168.4.205:7687) via `memgraph_adapter.py`
 **Migration notes**: Requires Memgraph client. Pure query tool — easy to port.
 
 ---

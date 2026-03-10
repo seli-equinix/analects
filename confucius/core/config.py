@@ -149,7 +149,7 @@ class RouterConfig(BaseModel):
     """Expert router configuration (Functionary-based classification)."""
 
     enabled: bool = False
-    url: str = "http://192.168.4.204:8001"
+    url: str = "http://192.168.4.205:8001"
     timeout_ms: int = 10000
     fallback_entry: str = "coder"
     temperature: float = 0.1
@@ -167,7 +167,7 @@ class ToolRouterConfig(BaseModel):
     """
 
     enabled: bool = False
-    url: str = "http://192.168.4.204:8001"
+    url: str = "http://192.168.4.205:8001"
     timeout_ms: int = 10000
     temperature: float = 0.1
 

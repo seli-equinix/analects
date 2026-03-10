@@ -60,7 +60,7 @@ Container logs: `docker logs --tail 50 <container-name>`
 | Service | Location | Quick Check |
 |---------|----------|-------------|
 | vLLM (main LLM) | Spark2:8000 | `curl -s http://192.168.4.208:8000/health` |
-| Memgraph | node3:7687 | `curl -s http://192.168.4.202:7687` |
+| Memgraph | Spark1:7687 | `python3 -c "from neo4j import GraphDatabase; d=GraphDatabase.driver('bolt://192.168.4.205:7687'); print(d.session().run('RETURN 1').single()[0]); d.close()"` |
 
 ### Important
 - This container runs with host networking — `127.0.0.1` reaches host services directly.
