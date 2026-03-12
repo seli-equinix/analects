@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from tests.evaluators import evaluate_response
+from tests.evaluators import assert_tools_called, evaluate_response
 
 pytestmark = [pytest.mark.coder, pytest.mark.slow]
 
@@ -47,6 +47,9 @@ class TestCodeIntelligence:
                 f"Agent didn't use graph tools (iters={iters1}). "
                 f"Response: {r1.content[:200]}"
             )
+            assert_tools_called(
+                r1.metadata, ["query_call_graph"], "Turn 1: call graph",
+            )
 
             # Should mention function names or file paths
             content1 = r1.content.lower()
@@ -77,6 +80,9 @@ class TestCodeIntelligence:
             assert iters2 >= 1, (
                 f"Agent didn't use orphan detection tools (iters={iters2})"
             )
+            assert_tools_called(
+                r2.metadata, ["find_orphan_functions"], "Turn 2: orphans",
+            )
 
             # Should list function names
             content2 = r2.content.lower()
@@ -106,6 +112,9 @@ class TestCodeIntelligence:
             trace_test.set_attribute("cca.test.t3_iters", iters3)
             assert iters3 >= 1, (
                 f"Agent didn't use dependency tools (iters={iters3})"
+            )
+            assert_tools_called(
+                r3.metadata, ["analyze_dependencies"], "Turn 3: deps",
             )
 
             # Should mention files or dependencies

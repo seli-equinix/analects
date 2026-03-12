@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from tests.evaluators import evaluate_response
+from tests.evaluators import assert_tools_called, evaluate_response
 
 pytestmark = [pytest.mark.coder, pytest.mark.slow]
 
@@ -53,6 +53,9 @@ class TestDocumentWorkflow:
                 f"Agent didn't use document tools (iters={iters1}). "
                 f"Response: {r1.content[:200]}"
             )
+            assert_tools_called(
+                r1.metadata, ["upload_document"], "Turn 1: upload",
+            )
 
             # ── Turn 2: Search for specific content ──
             msg2 = (
@@ -64,6 +67,10 @@ class TestDocumentWorkflow:
 
             trace_test.set_attribute("cca.test.t2_response", r2.content[:300])
             assert r2.content, "Turn 2 returned empty"
+
+            assert_tools_called(
+                r2.metadata, ["search_documents"], "Turn 2: search",
+            )
 
             # Should recall the isolation forest detail
             content2 = r2.content.lower()
@@ -93,6 +100,9 @@ class TestDocumentWorkflow:
             trace_test.set_attribute("cca.test.t3_iters", iters3)
             assert iters3 >= 1, (
                 f"Agent didn't use document tools (iters={iters3})"
+            )
+            assert_tools_called(
+                r3.metadata, ["list_session_docs"], "Turn 3: list/promote",
             )
 
             # Should mention the document

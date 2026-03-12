@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 from .cca_client import ChatResult
@@ -274,6 +275,105 @@ def eval_user_identified(result: ChatResult) -> Optional[Dict[str, Any]]:
         "label": "pass" if identified else "fail",
         "explanation": f"user_name={result.user_name or 'none'}",
     }
+
+
+# Refusal patterns — LLM said "I can't" instead of using tools
+_REFUSAL_PATTERNS = [
+    "i don't have access", "i don't have a", "not available in my",
+    "no tools available", "i can't access", "i cannot access",
+    "not in my current toolset", "don't have the ability",
+    "i'm unable to", "i am unable to", "outside my capabilities",
+    "i lack the tools", "no function available", "tool is not available",
+    "i don't currently have",
+]
+
+
+def eval_no_refusal(result: ChatResult) -> Dict[str, Any]:
+    """Score 0.0 if the LLM refused instead of using tools."""
+    content = result.content.lower()
+    for pattern in _REFUSAL_PATTERNS:
+        if pattern in content:
+            return {
+                "name": "no_refusal",
+                "annotator_kind": "CODE",
+                "score": SCORE_FAIL,
+                "label": "refusal_detected",
+                "explanation": f"LLM refused: found '{pattern}'",
+            }
+    return {
+        "name": "no_refusal",
+        "annotator_kind": "CODE",
+        "score": SCORE_PASS,
+        "label": "no_refusal",
+        "explanation": "No refusal patterns detected",
+    }
+
+
+def eval_response_duplication(result: ChatResult) -> Dict[str, Any]:
+    """Score based on paragraph-level duplication in the response.
+
+    Advisory only — posted to Phoenix but doesn't gate pass/fail.
+    """
+    content = result.content
+    paragraphs = [
+        p.strip() for p in re.split(r"\n{2,}", content)
+        if len(p.strip()) > 50
+    ]
+
+    if len(paragraphs) < 2:
+        return {
+            "name": "response_duplication",
+            "annotator_kind": "CODE",
+            "score": SCORE_PASS,
+            "label": "no_duplication",
+            "explanation": "",
+        }
+
+    worst = 0.0
+    for i in range(len(paragraphs)):
+        for j in range(i + 1, len(paragraphs)):
+            worst = max(
+                worst,
+                SequenceMatcher(
+                    None, paragraphs[i].lower(), paragraphs[j].lower()
+                ).ratio(),
+            )
+
+    score = round(1.0 - worst, 2)  # 1.0 = no duplication, 0.0 = exact copy
+    label = "duplicated" if worst >= 0.7 else "acceptable"
+    return {
+        "name": "response_duplication",
+        "annotator_kind": "CODE",
+        "score": score,
+        "label": label,
+        "explanation": f"Max paragraph similarity: {worst:.0%}",
+    }
+
+
+def assert_tools_called(
+    metadata: dict, required_tools: List[str], context: str = "",
+) -> None:
+    """Assert that specific tools were called (by name substring match).
+
+    Standalone test assertion — not an evaluator (needs per-test tool names).
+
+    Args:
+        metadata: response.metadata dict (contains tool_calls from server)
+        required_tools: tool name substrings, e.g. ["upload_document"]
+        context: description for error messages
+    """
+    tool_calls = metadata.get("tool_calls") or []
+    called_names = [
+        tc.get("name", "") if isinstance(tc, dict) else tc.name
+        for tc in tool_calls
+    ]
+    for required in required_tools:
+        if not any(required in name for name in called_names):
+            msg = f"Required tool '{required}' was never called."
+            msg += f" Tools actually called: {called_names}"
+            if context:
+                msg += f" (context: {context})"
+            raise AssertionError(msg)
 
 
 # ==================== LLM Judge Evaluators (direct vLLM) ====================
@@ -543,7 +643,8 @@ def evaluate_response(
     evals: Dict[str, Dict[str, Any]] = {}
 
     # --- Code evaluators (always run) ---
-    for evaluator in [eval_not_empty, eval_no_error, eval_latency]:
+    for evaluator in [eval_not_empty, eval_no_error, eval_latency,
+                      eval_no_refusal, eval_response_duplication]:
         ev = evaluator(result)
         evals[ev["name"]] = ev
 
@@ -661,6 +762,15 @@ def evaluate_response(
             continue
         # Tool errors are advisory — surfaced for visibility, not gating.
         if ev["name"] == "tool_errors":
+            continue
+        # Response duplication is advisory — quality metric, not functional.
+        if ev["name"] == "response_duplication":
+            continue
+        # Refusal detection is advisory — some tests EXPECT refusal
+        # (security edge cases: SSRF blocking, FTP rejection).
+        # assert_tools_called() is the gating mechanism for tests
+        # that require specific tools to be used.
+        if ev["name"] == "no_refusal":
             continue
         raise AssertionError(
             f"Code evaluator '{ev['name']}' FAILED: "

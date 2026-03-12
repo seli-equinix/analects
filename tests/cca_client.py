@@ -79,6 +79,13 @@ class ChatResult:
     def user_id(self) -> Optional[str]:
         return self.metadata.get("user_id")
 
+    @property
+    def tool_names(self) -> List[str]:
+        """Names of all tools called during this request."""
+        return [
+            tc["name"] for tc in (self.metadata.get("tool_calls") or [])
+        ]
+
     def __repr__(self) -> str:
         preview = self.content[:80] + "..." if len(self.content) > 80 else self.content
         meta_parts = [f"{self.elapsed_ms:.0f}ms", f"{len(self.content)} chars"]

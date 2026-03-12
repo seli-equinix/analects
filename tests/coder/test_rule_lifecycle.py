@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from tests.evaluators import evaluate_response
+from tests.evaluators import assert_tools_called, evaluate_response
 
 pytestmark = [pytest.mark.coder, pytest.mark.slow]
 
@@ -52,6 +52,9 @@ class TestRuleLifecycle:
                 f"Agent didn't use tools to create rule "
                 f"(route={route1}, iters={iters})"
             )
+            assert_tools_called(
+                r1.metadata, ["create_rule"], "Turn 1: create rule",
+            )
 
             # ── Turn 2: List all coding rules, verify ours, then delete it ──
             # Combine list + delete to reduce routing risk on follow-ups.
@@ -74,6 +77,9 @@ class TestRuleLifecycle:
             assert iters2 >= 1, (
                 f"Agent didn't use rule tools "
                 f"(route={route2}, iters={iters2})"
+            )
+            assert_tools_called(
+                r2.metadata, ["list_rules"], "Turn 2: list rules",
             )
 
             # Should have listed the rule and confirmed deletion

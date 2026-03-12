@@ -15,7 +15,7 @@ import uuid
 
 import pytest
 
-from tests.evaluators import evaluate_response
+from tests.evaluators import assert_tools_called, evaluate_response
 
 pytestmark = [pytest.mark.coder]
 
@@ -54,6 +54,9 @@ class TestCodebaseSearch:
                 f"Agent didn't use search tools (route={route}, iters={iters}). "
                 f"Response: {r1.content[:200]}"
             )
+            assert_tools_called(
+                r1.metadata, ["search_codebase"], "Turn 1: search",
+            )
 
             # Response should mention file paths or function names
             content_lower = r1.content.lower()
@@ -81,6 +84,9 @@ class TestCodebaseSearch:
             trace_test.set_attribute("cca.test.t2_iters", iters2)
             assert iters2 >= 1, (
                 f"Agent didn't use search tools for Qdrant query (iters={iters2})"
+            )
+            assert_tools_called(
+                r2.metadata, ["search_codebase"], "Turn 2: search",
             )
 
             # Should mention Qdrant-related content
