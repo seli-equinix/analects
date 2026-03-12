@@ -375,8 +375,8 @@ class TestRoutingEdgeCases:
             # Turn 4: Edit ops.py — add power() and modulo() functions
             # ═══════════════════════════════════════════════════════════
             msg4 = (
-                f"Using str_replace_editor, edit /workspace/{prefix}_ops.py "
-                f"to add two new functions after the existing ones:\n"
+                f"Edit /workspace/{prefix}_ops.py to add two new functions "
+                f"after the existing ones:\n"
                 f"- power(a, b) that returns a raised to the power of b\n"
                 f"- modulo(a, b) that returns a modulo b, raising "
                 f"ValueError if b is zero."

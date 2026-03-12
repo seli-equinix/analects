@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from ..orchestrator.extensions import Extension
 from ..orchestrator.extensions.caching.anthropic import AnthropicPromptCaching
 from ..orchestrator.extensions.command_line.base import CommandLineExtension
+from ..core.chat_models.bedrock.api.invoke_model import anthropic as ant
 from ..orchestrator.extensions.file.edit import FileEditExtension
 from ..orchestrator.extensions.function import FunctionExtension
 from ..orchestrator.extensions.memory.hierarchical import HierarchicalMemoryExtension
@@ -200,6 +201,7 @@ def _build_extension_for_group(
         return FileEditExtension(
             max_output_lines=500,
             enable_tool_use=True,
+            editor_tool=ant.TextEditor(name="str_replace_editor"),
         )
 
     elif group == ToolGroup.SHELL:

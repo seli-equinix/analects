@@ -415,7 +415,7 @@ TOOL_SELECTION_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "enable_file_editor",
             "description": (
-                "Enable file viewing/editing (str_replace_editor). "
+                "Enable file viewing/editing (str_replace_editor for view, create, edit). "
                 "For creating, viewing, or modifying code files, configs, scripts."
             ),
             "parameters": {
@@ -580,7 +580,7 @@ stuck — it needs tools it doesn't currently have.
 Analyze the agent's last output and determine which tool groups to enable.
 
 Available tool groups:
-- file_editor: str_replace_editor for creating/editing files (code, configs, scripts)
+- file_editor: str_replace_editor for viewing, creating, and editing files (code, configs, scripts)
 - shell: bash command execution (run commands, install packages, build, git)
 - web_search: search the internet, read web pages, find documentation
 - memory: write_memory/read_memory for planning and tracking complex tasks

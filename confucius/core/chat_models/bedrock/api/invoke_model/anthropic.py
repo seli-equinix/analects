@@ -358,7 +358,8 @@ class Response(BaseModel):
 # https://docs.anthropic.com/en/docs/agents-and-tools/computer-use#text-editor-tool
 
 TEXT_EDITOR_DESCRIPTION: str = """\
-Custom editing tool for viewing, creating and editing files
+File operations tool — use this to read, create, and edit files instead of bash commands like cat/sed/echo.
+* Commands: `view` (read file/dir), `create` (new file), `str_replace` (edit text), `insert` (add lines), `undo_edit` (revert)
 * State is persistent across command calls and discussions with the user
 * If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep
 * The `create` command cannot be used if the specified `path` already exists as a file

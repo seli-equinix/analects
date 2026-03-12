@@ -238,6 +238,10 @@ call `manage_user_profile(action="delete_profile", confirm_delete=true)`.
 - `add_alias` / `remove_alias` — Manage name aliases (pass value="seli")
 - `delete_profile` — Permanently delete (pass confirm_delete=true)
 - `list_all` — List all known user profiles (summary)
+
+## Past Knowledge
+- You have a `search_notes` tool to check insights from past sessions.
+- If `<past_insights>` tags appear in your context, they contain verified knowledge from previous sessions — use them.
 """
 
 
