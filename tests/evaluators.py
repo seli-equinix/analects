@@ -623,6 +623,7 @@ def evaluate_response(
     trace_span,
     judge_model=None,
     category: str = "user",
+    expect_refusal: bool = False,
 ) -> Dict[str, Dict[str, Any]]:
     """Run all applicable evaluators and post results as Phoenix annotations.
 
@@ -636,6 +637,7 @@ def evaluate_response(
         trace_span: The trace_test span fixture (OTel span)
         judge_model: OpenAIModel for LLM judge (None = skip LLM evals)
         category: Test category ("user", "websearch", "integration")
+        expect_refusal: If True, refusal is expected (skip no_refusal gating)
 
     Returns:
         Dict of {eval_name: {name, score, label, explanation}}
@@ -766,11 +768,10 @@ def evaluate_response(
         # Response duplication is advisory — quality metric, not functional.
         if ev["name"] == "response_duplication":
             continue
-        # Refusal detection is advisory — some tests EXPECT refusal
+        # Refusal detection: GATING by default. Catches "I don't have
+        # access" false passes. Skip only when expect_refusal=True
         # (security edge cases: SSRF blocking, FTP rejection).
-        # assert_tools_called() is the gating mechanism for tests
-        # that require specific tools to be used.
-        if ev["name"] == "no_refusal":
+        if ev["name"] == "no_refusal" and expect_refusal:
             continue
         raise AssertionError(
             f"Code evaluator '{ev['name']}' FAILED: "

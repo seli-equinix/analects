@@ -323,8 +323,11 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                 "Route to user management. Use ONLY when the request is "
                 "exclusively about user identity or profile management: "
                 "identification ('I'm Sean'), viewing/deleting profiles, "
-                "storing facts ('remember I work at...'), updating "
-                "preferences, managing skills and aliases. "
+                "storing short personal facts ('remember I work at...'), "
+                "updating preferences, managing skills and aliases. "
+                "Do NOT use for storing documents, notes, architecture "
+                "descriptions, or large text — those need document tools "
+                "(route_to_coder). "
                 "If the user ALSO asks for code, infrastructure help, "
                 "or any technical task alongside user management, route "
                 "to coder or infrastructure instead — those routes have "
@@ -510,6 +513,47 @@ TOOL_SELECTION_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "enable_documents",
+            "description": (
+                "Enable document tools (upload, search, list, promote). "
+                "For storing, searching, or managing large text, notes, "
+                "architecture docs, or reference material."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the agent needs document tools",
+                    }
+                },
+                "required": ["reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enable_rules",
+            "description": (
+                "Enable rules tools (create, list, delete coding rules). "
+                "For managing coding standards and behavior rules."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the agent needs rules tools",
+                    }
+                },
+                "required": ["reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "no_additional_tools",
             "description": (
                 "Current tools are sufficient. The agent can complete "
@@ -541,6 +585,8 @@ Available tool groups:
 - web_search: search the internet, read web pages, find documentation
 - memory: write_memory/read_memory for planning and tracking complex tasks
 - code_search: search_codebase/search_knowledge for finding code in the project
+- documents: upload_document/search_documents/list_session_docs for storing and retrieving notes, docs, reference material
+- rules: create_rule/list_rules/delete_rule for managing coding standards
 
 Rules:
 - Enable ONLY the tools the agent actually needs — fewer is better (1-2 ideal)
@@ -549,6 +595,8 @@ Rules:
 - If the agent wants to search online or find docs → enable web_search
 - If the task needs planning (multiple steps) → enable memory
 - If the agent needs to find existing code → enable code_search
+- If the agent needs to store, search, or list documents/notes → enable documents
+- If the agent needs to manage coding rules → enable rules
 - Call no_additional_tools if the agent's current tools are sufficient
 
 The agent's current route: {current_route}
@@ -564,6 +612,8 @@ _TOOL_FUNC_TO_GROUP_NAME = {
     "enable_web_search": "web",
     "enable_memory": "memory",
     "enable_code_search": "code_search",
+    "enable_documents": "document",
+    "enable_rules": "rules",
 }
 
 
@@ -772,6 +822,10 @@ Route to user ONLY when the message is exclusively about identity, profile, \
 or stored data with no other task.
 - "Delete my profile", "what do you know about me?", "remember I work at X" → user.
 - "Hi I'm Sean, write me a Python script" → coder (coding is primary).
+- Documents vs facts: Storing large text, notes, architecture docs, code snippets, \
+or reference material → coder (has document upload/search/list tools). \
+User route is ONLY for short personal facts (name, employer, preferences). \
+"Store these notes", "save this document", "keep this for later" → coder.
 
 User extraction (apply to ALL routing functions):
 - If the user introduces themselves ("I'm Sean", "my name is Alex", "this is John"), \
