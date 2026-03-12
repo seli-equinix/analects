@@ -24,6 +24,6 @@ Memory is session-isolated and automatically displayed in the UI for reference.
 
 READ_MEMORY_DESCRIPTION = "Read the current contents of persistent memory to review context before making decisions or continuing work"
 
-WRITE_MEMORY_DESCRIPTION = "Store new information in persistent memory (warns when overwriting existing data). Use when: (1) user expresses preferences, requirements, or constraints, (2) after making significant architectural/design/implementation decisions, (3) when completing major milestones or receiving important feedback, (4) when establishing patterns/approaches/solutions that may be referenced again, (5) when conversation direction changes or new information significantly impacts the task, (6) during code reviews or iterative development cycles"
+WRITE_MEMORY_DESCRIPTION = "Store YOUR OWN planning notes and task-tracking in persistent memory (warns when overwriting existing data). Use when: (1) creating a plan or todo list for your current task, (2) after making implementation decisions during YOUR work, (3) when tracking progress or milestones, (4) when noting patterns/solutions found during execution. Do NOT use for storing user-provided documents, notes, or text — use `upload_document` for that."
 
 EDIT_MEMORY_DESCRIPTION = "Perform targeted string replacement in memory (warns on multiple matches). Use to update existing information as situations evolve rather than accumulating redundant data"

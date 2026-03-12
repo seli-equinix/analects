@@ -104,11 +104,14 @@ class DocumentToolsExtension(ToolUseExtension):
             ant.Tool(
                 name="upload_document",
                 description=(
-                    "Upload a document to the session's ephemeral storage.\n"
-                    "Content is chunked, embedded, and stored for 24 hours.\n"
-                    "Use this when the user pastes code, config, or text they "
-                    "want to analyze or reference later.\n"
-                    "Returns the document ID for later reference."
+                    "Store a document provided by the user. Content is chunked, "
+                    "embedded, and made searchable via search_documents.\n"
+                    "USE THIS (not write_memory) when the user asks to store, "
+                    "save, or keep notes, documents, architecture descriptions, "
+                    "reference material, code snippets, or any text for later "
+                    "retrieval.\n"
+                    "Returns a document ID. Use promote_doc_to_knowledge to "
+                    "make it permanent."
                 ),
                 input_schema={
                     "type": "object",

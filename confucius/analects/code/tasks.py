@@ -55,6 +55,10 @@ Code Intelligence
 - Use `search_notes` to check past session knowledge before starting work.
 - Use `create_rule` to define persistent behavior rules that survive across sessions.
 
+Document Storage vs Planning Memory
+- When the user gives you text, notes, docs, or content to STORE for later retrieval, use `upload_document`. It chunks, embeds, and makes content searchable. Use `list_session_docs` to list stored documents, and `promote_doc_to_knowledge` to make them permanent.
+- `write_memory` is for YOUR OWN planning and task tracking (todo lists, progress notes). Do NOT use it to store user-provided documents or text — that's what `upload_document` is for.
+
 User Context
 - If the user gives their name ("Hi I'm Alice", "My name is Alice"), call `remember_user_fact(key="name", value="Alice")` IMMEDIATELY — before anything else, even before answering the task. Names always get stored.
 - If the user mentions any personal facts (employer, role, team, OS, tools, preferences), call `remember_user_fact` for each fact BEFORE answering the main request.
