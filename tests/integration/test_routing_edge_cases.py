@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from tests.evaluators import evaluate_response
+from tests.evaluators import assert_tools_called, evaluate_response
 
 pytestmark = [pytest.mark.integration]
 
@@ -222,19 +222,18 @@ class TestRoutingEdgeCases:
             tracker.cleanup()
 
     def test_complex_multi_file_project(self, cca, trace_test, judge_model):
-        """Complex multi-file project — triggers expert extensions + code execution.
+        """Full dev workflow: create → run → read → edit → re-run → test.
 
-        Journey: ask for a multi-file Python project with separate modules →
-        agent creates 3+ files (triggers TestGeneratorExtension) with 3+
-        edit operations (triggers CodeReviewerExtension) → then run the
-        code and verify output.
+        Exercises every file/code capability the CODER agent has:
+          Turn 1: Create 3 files (str_replace_editor create × 3)
+          Turn 2: Run the code (bash python3) — verify computed values
+          Turn 3: Read a file back (str_replace_editor view) — verify contents
+          Turn 4: Edit existing code — add new functions (str_replace_editor)
+          Turn 5: Update main + run again — verify new computed values
+          Turn 6: Create test file + run tests (new file creation + bash)
 
-        Expert extensions require estimated_steps >= 8 (is_complex).
-        CodeReviewerExtension fires after 3+ file edits (create/str_replace/insert).
-        TestGeneratorExtension fires after any file creation.
-
-        Expert output appears as <code_review> and <test_suggestions> XML tags
-        injected into the conversation — we soft-check for these.
+        This is a realistic developer session: build a project, run it,
+        inspect code, add features, verify, then write tests.
         """
         tracker = cca.tracker()
         sid = f"test-complex-{uuid.uuid4().hex[:8]}"
@@ -243,9 +242,9 @@ class TestRoutingEdgeCases:
         tracker.track_workspace_prefix(prefix)
 
         try:
-            # ── Turn 1: Create a multi-file Python project ──
-            # Request is deliberately complex — multiple files, clear structure,
-            # enough work for the router to estimate 8+ steps.
+            # ═══════════════════════════════════════════════════════════
+            # Turn 1: Create a multi-file Python project
+            # ═══════════════════════════════════════════════════════════
             msg1 = (
                 f"Build me a Python calculator project in /workspace with "
                 f"these separate files:\n"
@@ -275,8 +274,11 @@ class TestRoutingEdgeCases:
             assert iters1 >= 1, (
                 f"Agent didn't use tools to create files (iters={iters1})"
             )
+            assert_tools_called(
+                r1.metadata, ["str_replace_editor"], "Turn 1: create files",
+            )
 
-            # Verify files were created via REST
+            # Verify files were created via REST ground truth
             files = cca.list_workspace_files()
             file_list = files.get("files", [])
             file_names = [
@@ -291,82 +293,204 @@ class TestRoutingEdgeCases:
                 f"{len(created_files)}: {created_files}"
             )
 
-            # Check for expert extension output (soft assertion — not guaranteed)
-            has_code_review = "<code_review>" in r1.content
-            has_test_suggestions = "<test_suggestions>" in r1.content
-            trace_test.set_attribute("cca.test.has_code_review", has_code_review)
-            trace_test.set_attribute("cca.test.has_test_suggestions", has_test_suggestions)
-            trace_test.set_attribute(
-                "cca.test.experts_would_fire",
-                f"steps={steps} >= 8 required, iters={iters1}, "
-                f"review={'yes' if has_code_review else 'no'}, "
-                f"test_gen={'yes' if has_test_suggestions else 'no'}",
-            )
-
-            # ── Turn 2: Run the code and verify output ──
+            # ═══════════════════════════════════════════════════════════
+            # Turn 2: Run the code and verify actual execution output
+            # ═══════════════════════════════════════════════════════════
             msg2 = (
-                f"Now run /workspace/{prefix}_main.py with python3 and "
-                f"show me the complete output. Does everything work correctly?"
+                f"Run /workspace/{prefix}_main.py with python3 and "
+                f"show me the complete output."
             )
             r2 = cca.chat(msg2, session_id=sid)
             evaluate_response(r2, msg2, trace_test, judge_model, "integration")
 
             trace_test.set_attribute("cca.test.t2_response", r2.content[:500])
             assert r2.content, "Turn 2 returned empty"
-
-            iters2 = r2.metadata.get("tool_iterations", 0)
-            trace_test.set_attribute("cca.test.t2_iters", iters2)
-            assert iters2 >= 1, (
-                f"Agent didn't run the code (iters={iters2})"
+            assert_tools_called(
+                r2.metadata, ["bash"], "Turn 2: run code",
             )
 
-            # --- Execution evidence: does the response prove the code ran? ---
-            content_lower = r2.content.lower()
-
-            # Tier 1: Specific computed values (strongest proof)
-            # 10+3=13, 10*3=30, 10/3≈3.33 — only from execution
-            # Note: "7" (10-3) excluded — too common in unrelated contexts
-            has_raw_13 = "13" in r2.content
-            has_raw_30 = "30" in r2.content
-            has_raw_333 = "3.33" in r2.content or "3.3" in r2.content
-            raw_values = sum([has_raw_13, has_raw_30, has_raw_333])
-
-            # Tier 2: Operation names (agent knows what was computed)
-            has_add = "add" in content_lower
-            has_subtract = "subtract" in content_lower
-            has_multiply = "multiply" in content_lower
-            has_divide = "divide" in content_lower
-            op_names = sum([has_add, has_subtract, has_multiply, has_divide])
-
-            # Tier 3: Blanket confirmation with specifics
-            has_all_work = any(phrase in content_lower for phrase in [
-                "all four operations", "all 4 operations",
-                "all operations work", "everything works",
-                "working correctly", "all tests pass",
-            ])
-
-            has_zero_check = any(x in content_lower for x in [
-                "zero", "error", "valueerror", "exception",
-                "divide by zero", "division by zero",
-            ])
-
-            # Accept: concrete values OR (named ops + confirmation) OR mix
-            execution_proven = (
-                raw_values >= 2
-                or (op_names >= 3 and has_all_work)
-                or (raw_values >= 1 and op_names >= 2)
+            # Specific computed values prove actual execution
+            # 10+3=13, 10*3=30, 10/3≈3.33
+            has_13 = "13" in r2.content
+            has_30 = "30" in r2.content
+            has_333 = "3.33" in r2.content or "3.3" in r2.content
+            raw_values = sum([has_13, has_30, has_333])
+            trace_test.set_attribute("cca.test.t2_raw_values", raw_values)
+            assert raw_values >= 2, (
+                f"Execution output missing computed values "
+                f"(13={has_13}, 30={has_30}, 3.3x={has_333}): "
+                f"{r2.content[:400]}"
             )
 
-            trace_test.set_attribute("cca.test.raw_values", raw_values)
-            trace_test.set_attribute("cca.test.op_names", op_names)
-            trace_test.set_attribute("cca.test.has_all_work", has_all_work)
-            trace_test.set_attribute("cca.test.has_zero_check", has_zero_check)
-            trace_test.set_attribute("cca.test.execution_proven", execution_proven)
+            # ═══════════════════════════════════════════════════════════
+            # Turn 3: Read back a specific file — verify view capability
+            # ═══════════════════════════════════════════════════════════
+            msg3 = (
+                f"Show me the contents of /workspace/{prefix}_ops.py. "
+                f"I want to review the code before making changes."
+            )
+            r3 = cca.chat(msg3, session_id=sid)
+            evaluate_response(r3, msg3, trace_test, judge_model, "integration")
 
-            assert execution_proven, (
-                f"Response doesn't demonstrate actual execution results "
-                f"(raw_values={raw_values}, op_names={op_names}, "
-                f"blanket_ok={has_all_work}): {r2.content[:500]}"
+            trace_test.set_attribute("cca.test.t3_response", r3.content[:500])
+            assert r3.content, "Turn 3 returned empty"
+            assert_tools_called(
+                r3.metadata, ["str_replace_editor"], "Turn 3: view file",
+            )
+
+            # Response should contain the actual function definitions
+            content3 = r3.content.lower()
+            has_func_defs = sum(1 for fn in [
+                "def add", "def subtract", "def multiply", "def divide",
+            ] if fn in content3)
+            trace_test.set_attribute("cca.test.t3_func_defs", has_func_defs)
+            assert has_func_defs >= 3, (
+                f"File view missing function definitions "
+                f"(found {has_func_defs}/4): {r3.content[:400]}"
+            )
+
+            # ═══════════════════════════════════════════════════════════
+            # Turn 4: Edit ops.py — add power() and modulo() functions
+            # ═══════════════════════════════════════════════════════════
+            msg4 = (
+                f"Edit /workspace/{prefix}_ops.py to add two new functions:\n"
+                f"- power(a, b) that returns a raised to the power of b\n"
+                f"- modulo(a, b) that returns a modulo b, raising "
+                f"ValueError if b is zero.\n"
+                f"Add them after the existing functions."
+            )
+            r4 = cca.chat(msg4, session_id=sid)
+            evaluate_response(r4, msg4, trace_test, judge_model, "integration")
+
+            trace_test.set_attribute("cca.test.t4_response", r4.content[:500])
+            assert r4.content, "Turn 4 returned empty"
+            assert_tools_called(
+                r4.metadata, ["str_replace_editor"], "Turn 4: edit ops.py",
+            )
+
+            iters4 = r4.metadata.get("tool_iterations", 0)
+            trace_test.set_attribute("cca.test.t4_iters", iters4)
+            assert iters4 >= 1, (
+                f"Agent didn't use tools to edit file (iters={iters4})"
+            )
+
+            # ═══════════════════════════════════════════════════════════
+            # Turn 5: Update main.py to use new functions, then run
+            # ═══════════════════════════════════════════════════════════
+            msg5 = (
+                f"Now update /workspace/{prefix}_main.py to also test "
+                f"power(10, 3) and modulo(10, 3) using the new functions. "
+                f"Format and print them like the others. Then run the "
+                f"updated main.py with python3 and show me the output."
+            )
+            r5 = cca.chat(msg5, session_id=sid)
+            evaluate_response(r5, msg5, trace_test, judge_model, "integration")
+
+            trace_test.set_attribute("cca.test.t5_response", r5.content[:500])
+            assert r5.content, "Turn 5 returned empty"
+
+            # Should have used both str_replace_editor (edit) and bash (run)
+            t5_tools = r5.tool_names
+            trace_test.set_attribute("cca.test.t5_tools", str(t5_tools))
+            has_editor = any("str_replace_editor" in t for t in t5_tools)
+            has_bash = any("bash" in t for t in t5_tools)
+            assert has_editor, (
+                f"Turn 5 didn't use str_replace_editor to edit main.py. "
+                f"Tools: {t5_tools}"
+            )
+            assert has_bash, (
+                f"Turn 5 didn't use bash to run the code. Tools: {t5_tools}"
+            )
+
+            # Verify new computed values: 10**3=1000, 10%3=1
+            has_1000 = "1000" in r5.content
+            has_mod_1 = bool(re.search(r"modulo.*\b1\b|\b1\b.*modulo", r5.content.lower()))
+            # Also accept just the value "= 1" in formatted output
+            if not has_mod_1:
+                has_mod_1 = bool(re.search(r"\b1\b", r5.content)) and "modulo" in r5.content.lower()
+            trace_test.set_attribute("cca.test.t5_has_1000", has_1000)
+            trace_test.set_attribute("cca.test.t5_has_mod_1", has_mod_1)
+            assert has_1000, (
+                f"Output missing power(10,3)=1000: {r5.content[:400]}"
+            )
+
+            # Also verify original operations still work (no regression)
+            has_original = "13" in r5.content or "30" in r5.content
+            trace_test.set_attribute("cca.test.t5_has_original", has_original)
+            assert has_original, (
+                f"Original operations missing from output (regression?): "
+                f"{r5.content[:400]}"
+            )
+
+            # ═══════════════════════════════════════════════════════════
+            # Turn 6: Create a test file and run the tests
+            # ═══════════════════════════════════════════════════════════
+            msg6 = (
+                f"Create /workspace/{prefix}_tests.py with unit tests "
+                f"using Python's unittest module. Test all 6 operations: "
+                f"add, subtract, multiply, divide (including zero division "
+                f"error), power, and modulo (including zero modulo error). "
+                f"Then run the tests with python3 and show me the results."
+            )
+            r6 = cca.chat(msg6, session_id=sid)
+            evaluate_response(r6, msg6, trace_test, judge_model, "integration")
+
+            trace_test.set_attribute("cca.test.t6_response", r6.content[:500])
+            assert r6.content, "Turn 6 returned empty"
+
+            t6_tools = r6.tool_names
+            trace_test.set_attribute("cca.test.t6_tools", str(t6_tools))
+            has_editor_t6 = any("str_replace_editor" in t for t in t6_tools)
+            has_bash_t6 = any("bash" in t for t in t6_tools)
+            assert has_editor_t6, (
+                f"Turn 6 didn't use str_replace_editor to create test file. "
+                f"Tools: {t6_tools}"
+            )
+            assert has_bash_t6, (
+                f"Turn 6 didn't use bash to run tests. Tools: {t6_tools}"
+            )
+
+            # Verify test file was created via REST
+            files_after = cca.list_workspace_files()
+            file_list_after = files_after.get("files", [])
+            file_names_after = [
+                f.get("name", "") if isinstance(f, dict) else str(f)
+                for f in file_list_after
+            ]
+            test_file_exists = any(
+                f"{prefix}_tests" in n for n in file_names_after
+            )
+            total_files = [n for n in file_names_after if prefix in n]
+            trace_test.set_attribute(
+                "cca.test.t6_test_file_exists", test_file_exists,
+            )
+            trace_test.set_attribute(
+                "cca.test.final_file_count", len(total_files),
+            )
+            trace_test.set_attribute(
+                "cca.test.final_files", str(total_files[:10]),
+            )
+            assert test_file_exists, (
+                f"Test file not created. Files: {file_names_after}"
+            )
+            assert len(total_files) >= 4, (
+                f"Expected 4 files (ops, formatter, main, tests), "
+                f"found {len(total_files)}: {total_files}"
+            )
+
+            # Verify tests actually ran and passed
+            content6 = r6.content.lower()
+            tests_ran = any(x in content6 for x in [
+                "ok", "passed", "test_add", "test_subtract",
+                "ran ", "tests run",
+            ])
+            tests_failed = any(x in content6 for x in [
+                "fail", "error", "traceback",
+            ])
+            trace_test.set_attribute("cca.test.t6_tests_ran", tests_ran)
+            trace_test.set_attribute("cca.test.t6_tests_failed", tests_failed)
+            assert tests_ran, (
+                f"No evidence that tests ran: {r6.content[:400]}"
             )
 
         finally:
