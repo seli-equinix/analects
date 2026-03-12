@@ -195,6 +195,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                 "creating files, modifying code, Git operations, "
                 "AND searching/exploring codebases (finding functions, files, "
                 "code patterns, dependencies, call graphs). "
+                "Also use when user asks about a specific project by name "
+                "(e.g., 'tell me about the EVA project', 'list files in project X', "
+                "'what do you know about this codebase'). "
                 "This route also handles user facts — if the user introduces "
                 "themselves or asks about their profile while requesting code, "
                 "use this route."
@@ -265,7 +268,9 @@ ROUTING_TOOLS: List[Dict[str, Any]] = [
                 "Route to web search/research expert. Use ONLY for: web research, "
                 "looking up external documentation, searching the internet, "
                 "and information retrieval from the web. "
-                "Do NOT use for searching project codebases — use route_to_coder instead."
+                "Do NOT use for: searching project codebases, exploring project "
+                "files or code structure, or asking about specific projects — "
+                "use route_to_coder instead (it has codebase search tools)."
             ),
             "parameters": {
                 "type": "object",
@@ -816,6 +821,9 @@ files/functions/classes/tests/bugs → coder.
 - Coder vs search: "find functions in the codebase", "search the project code", \
 "which files implement X" → coder (has codebase search tools). \
 Search is ONLY for web/internet lookups.
+- Project exploration: If the user mentions a project by name, asks about project \
+files, code structure, or functions → coder (has codebase search and call graph tools). \
+SEARCH is ONLY for web/internet lookups, never for project exploration.
 - User vs coder: If user asks about their profile or facts AND also requests \
 code/technical work in the same message → coder (it has user memory tools). \
 Route to user ONLY when the message is exclusively about identity, profile, \
@@ -1059,6 +1067,10 @@ async def classify_request(
         # task-bearing messages (same patterns as direct guards).
         decision = _guard_recall_not_clarify(decision, user_message)
         decision = _guard_clarify_has_task(decision, user_message)
+
+        # Guards for SEARCH — project references need coder's codebase tools
+        decision = _guard_project_not_search(decision, user_message)
+        decision = _guard_search_scope_codebase(decision, user_message)
 
         # LLM escalation: if message has 2+ route signals and Functionary
         # picked none of them, ask the big LLM to resolve the conflict.
@@ -1365,6 +1377,79 @@ def _guard_clarify_has_task(
     return decision
 
 
+# Patterns that reference a specific project or codebase — need code search tools
+_PROJECT_PATTERNS = re.compile(
+    r"\b("
+    # Explicit project/repo/codebase references
+    r"(the|my|our|this|that)\s+\w+\s+project"
+    r"|\w+\s+project\s+(files?|code|structure|functions?|modules?|classes)"
+    r"|project\s+\w+\b"
+    r"|(in|from|about)\s+(the|my|our)\s+(project|repo|repository|codebase)"
+    # File/code exploration language
+    r"|list\s+(all\s+)?(the\s+)?files"
+    r"|show\s+(me\s+)?(all\s+)?(the\s+)?files"
+    r"|what\s+files\s+(are|does|do)"
+    r"|file\s+(structure|tree|layout|list)"
+    # Codebase exploration
+    r"|search\s+(the\s+|my\s+|our\s+)?(code|codebase|repo|repository|project)"
+    r"|find\s+(in|from)\s+(the\s+|my\s+)?(code|codebase|repo|project)"
+    r"|functions?\s+in\s+(the\s+|my\s+)?(project|codebase|repo)"
+    r"|explore\s+(the\s+|my\s+)?(codebase|project|repo)"
+    # "everything you know about X project"
+    r"|everything\s+(you\s+)?know\s+about\s+.*project"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _guard_project_not_search(
+    decision: RouteDecision, user_message: str
+) -> RouteDecision:
+    """Override search→coder if the message references a project or codebase.
+
+    Project exploration needs codebase search tools (search_codebase,
+    query_call_graph) which only exist on the CODER route.
+    The SEARCH route only has web tools.
+    """
+    if decision.expert != ExpertType.SEARCH:
+        return decision
+
+    if _PROJECT_PATTERNS.search(user_message):
+        logger.warning(
+            "Router guard: overriding search→coder for project reference: %s",
+            user_message[:80],
+        )
+        decision.expert = ExpertType.CODER
+        if decision.estimated_steps < 5:
+            decision.estimated_steps = 5
+        return decision
+
+    return decision
+
+
+def _guard_search_scope_codebase(
+    decision: RouteDecision, _user_message: str
+) -> RouteDecision:
+    """Override search→coder if Functionary specified search_scope=codebase.
+
+    Functionary sometimes correctly identifies the scope as 'codebase'
+    but still routes to search. The SEARCH route has no codebase tools.
+    """
+    if decision.expert != ExpertType.SEARCH:
+        return decision
+
+    scope = (decision.parameters or {}).get("search_scope", "")
+    if scope == "codebase":
+        logger.warning(
+            "Router guard: overriding search→coder (search_scope=codebase)"
+        )
+        decision.expert = ExpertType.CODER
+        if decision.estimated_steps < 5:
+            decision.estimated_steps = 5
+
+    return decision
+
+
 # ========================= LLM Escalation =========================
 # When Functionary 8B produces an ambiguous routing decision (message has
 # signals for 2+ routes but Functionary picked none of them), escalate to
@@ -1393,6 +1478,8 @@ def _detect_route_signals(message: str) -> Set[ExpertType]:
     """Detect which routes the message has keyword signals for."""
     signals: Set[ExpertType] = set()
     if _CODING_PATTERNS.search(message):
+        signals.add(ExpertType.CODER)
+    if _PROJECT_PATTERNS.search(message):
         signals.add(ExpertType.CODER)
     if _SEARCH_PATTERNS.search(message):
         signals.add(ExpertType.SEARCH)
