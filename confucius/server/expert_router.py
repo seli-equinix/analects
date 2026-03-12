@@ -1390,9 +1390,13 @@ async def _big_llm_reroute(
         from ..core.config import get_llm_params
 
         params = get_llm_params("coder")
+        base_url = (params.additional_kwargs or {}).get("base_url", "")
+        if not base_url:
+            logger.warning("LLM escalation: no base_url in coder params, skipping")
+            return decision
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                f"{params.base_url}/chat/completions",
+                f"{base_url}/chat/completions",
                 json={
                     "model": params.model,
                     "messages": [{"role": "user", "content": prompt}],
