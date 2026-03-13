@@ -54,8 +54,8 @@ QWEN3_80B_CODER = LLMParams(
     },
 )
 
-QWEN3_8B_NOTETAKER = LLMParams(
-    model="/models/Qwen3-8B-FP8",
+QWEN3_9B_NOTETAKER = LLMParams(
+    model="/models/Qwen3.5-9B-FP8",
     initial_max_tokens=4096,
     max_tokens=8192,
     temperature=0.3,
