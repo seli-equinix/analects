@@ -41,6 +41,7 @@ variables:
   stage: test
   image: 192.168.4.204:5000/cca-tests/test-runner:latest
   needs: [health-check]
+  resource_group: cca-llm
   artifacts:
     when: always
     paths: ["report-*.xml"]
