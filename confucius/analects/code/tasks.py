@@ -49,12 +49,13 @@ Validation
 - Always show the actual output — don't skip the verification step.
 
 Code Intelligence
-- Use `search_codebase` to find relevant code, functions, or patterns in the indexed repository.
+- **ALWAYS use `search_codebase` to find code, files, or patterns** — do NOT use bash grep/find/rg for code discovery. `search_codebase` has the full indexed repository with semantic search and returns richer results than grep. Use it for every "find code that does X", "which files use Y", "where is Z implemented" question.
 - Use `query_call_graph` to trace callers/callees, find who calls a function, or map dependencies.
 - Use `find_orphan_functions` to detect unused or dead code.
 - Use `search_documents` to search uploaded documents for relevant context.
 - Use `search_notes` to check past session knowledge before starting work.
 - Use `create_rule` to define persistent behavior rules that survive across sessions.
+- `bash` is for RUNNING code, tests, and commands — NOT for searching/finding code. If you need to locate code, use `search_codebase`.
 
 Document Storage vs Planning Memory
 - When the user gives you text, notes, docs, or content to STORE for later retrieval, use `upload_document`. It chunks, embeds, and makes content searchable. Use `list_session_docs` to list stored documents, and `promote_doc_to_knowledge` to make them permanent.

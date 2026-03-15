@@ -470,7 +470,7 @@ def get_infra_task_definition(current_time: str) -> str:
         "| `bash` | Run commands (docker, ssh, curl, etc.) — for execution, not file editing |",
         "| `web_search` / `fetch_url_content` | Research docs, APIs, current information |",
         "| `write_memory` / `read_memory` | Track multi-step plans, save progress |",
-        "| `search_codebase` | Find code, configs, or patterns in the indexed repository |",
+        "| `search_codebase` | **ALWAYS use for finding code, configs, or patterns** — prefer over bash grep/find/rg |",
         "| `query_call_graph` / `analyze_dependencies` | Trace function callers/callees, map code dependencies |",
         "| `upload_document` / `search_documents` | Store and search user-provided documents and notes |",
         "| `create_rule` / `list_rules` | Define and manage persistent behavior rules |",
