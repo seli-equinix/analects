@@ -118,6 +118,20 @@ _SHELL_CMD_PREFIXES = (
     "apt ", "sudo ", "chmod ", "chown ", "grep ", "sed ",
 )
 
+# Tool Intention Recovery (TIR): patterns that indicate the model
+# INTENDED to call a tool but described it in text instead of making
+# a structured function call.  Used across all dual-model routes.
+_TOOL_INTENT_PATTERNS = (
+    # Intent phrases (model describing what it will do)
+    "i'll use", "let me use", "let me call", "i need to use",
+    "i'll call", "i need to call", "i will use", "i should use",
+    "going to use", "need to run", "let me run",
+    # Denial phrases (model incorrectly claiming tool unavailability)
+    "not available", "not supported", "cannot use", "can't use",
+    "doesn't support", "does not support", "is unavailable",
+    "unable to use", "not accessible",
+)
+
 # Tools that only READ data — safe for the 8B to orchestrate.
 # Any tool NOT in this set triggers 80B on the next iteration.
 RESEARCH_TOOLS = frozenset({
@@ -173,6 +187,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     # Post-error nudge: after a tool failure, if model describes what it would
     # have done instead of retrying, nudge once to try a different approach
     _post_error_nudge_done: bool = PrivateAttr(default=False)
+    # TIR: post-tool described call nudge — catches 35B describing a tool
+    # call without executing it (same problem as 9B, but less common)
+    _post_describe_nudge_done: bool = PrivateAttr(default=False)
     # Global error circuit breaker (works for 80B too, not just 8B→80B)
     _total_consecutive_errors: int = PrivateAttr(default=0)
     _error_hint_injected: bool = PrivateAttr(default=False)
@@ -778,11 +795,51 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
 
             elif self._using_fast_model:
                 # 8B finished research (no more tools) → force 80B synthesis.
-                self._research_cycle_count += 1
                 self._consecutive_8b_iters = 0
                 self._last_tool_names = []
                 self._repeated_context_count = 0
                 self._last_fast_context_hash = 0
+
+                # ── Tool Intention Recovery (TIR) ──
+                # Before assuming "research done," check if the 9B tried to
+                # use a tool but failed to make a structured call.  This
+                # happens when the 9B writes "I'll use str_replace_editor…"
+                # as text or says "bash is not available" — the tool IS
+                # available, the 9B just couldn't format the function call.
+                # Applies to ALL dual-model routes: CODER, INFRA, USER, PLANNER.
+                described = self._extract_described_tool_call(context)
+                tool_mentioned = (
+                    await self._detect_tool_intention(context)
+                    if not described else None
+                )
+                if described or tool_mentioned:
+                    tool_name = (
+                        described.tool if described else tool_mentioned
+                    )
+                    logger.info(
+                        "Dual-model: TIR — 9B described/mentioned tool "
+                        "'%s' without calling it, handing off to 35B",
+                        tool_name,
+                    )
+                    self._force_primary = True
+                    context.memory_manager.add_messages([
+                        CfMessage(
+                            type=cf.MessageType.HUMAN,
+                            content=(
+                                f"The research model identified that "
+                                f"`{tool_name}` needs to be called but was "
+                                f"unable to execute the tool call. All tools "
+                                f"in your function list are available and "
+                                f"working. Call `{tool_name}` now to complete "
+                                f"this step."
+                            ),
+                            additional_kwargs={"__synthetic__": True},
+                        )
+                    ])
+                    continue
+
+                # Normal research cycle — 9B genuinely finished researching.
+                self._research_cycle_count += 1
 
                 if self._research_cycle_count >= MAX_RESEARCH_CYCLES:
                     # Too many research cycles — inject final synthesis prompt
@@ -1010,6 +1067,42 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         )
                     ])
                     continue
+
+                # ── TIR: Post-tool described call nudge ──
+                # Catches when the 35B describes a tool call without
+                # executing it (same problem as 9B, but less common).
+                # One-shot to prevent infinite loops.
+                elif not self._post_describe_nudge_done:
+                    described = self._extract_described_tool_call(context)
+                    tool_mentioned = (
+                        await self._detect_tool_intention(context)
+                        if not described else None
+                    )
+                    if described or tool_mentioned:
+                        self._post_describe_nudge_done = True
+                        tool_name = (
+                            described.tool if described else tool_mentioned
+                        )
+                        logger.info(
+                            "Dual-model: TIR post-tool — model mentioned "
+                            "'%s' without calling it, nudging before "
+                            "synthesis",
+                            tool_name,
+                        )
+                        context.memory_manager.add_messages([
+                            CfMessage(
+                                type=cf.MessageType.HUMAN,
+                                content=(
+                                    f"You mentioned `{tool_name}` in your "
+                                    f"response but didn't make an actual tool "
+                                    f"call. All tools in your function list "
+                                    f"are available and working. Call "
+                                    f"`{tool_name}` now to continue the task."
+                                ),
+                                additional_kwargs={"__synthetic__": True},
+                            )
+                        ])
+                        continue
 
                 # 80B produced text after tool work (coding/non-research routes).
                 # Normally its response was an internal working draft — force one
@@ -1240,6 +1333,38 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     )
 
             return None
+        return None
+
+    async def _detect_tool_intention(
+        self, context: AnalectRunContext,
+    ) -> str | None:
+        """Detect when the model mentioned a tool without calling it.
+
+        Broader than _extract_described_tool_call (which requires fenced code
+        blocks).  Catches intent/denial patterns in plain text — works for
+        any tool on any route (str_replace_editor, bash, identify_user, etc.).
+
+        Returns the tool name if found, None otherwise.
+        """
+        for msg in reversed(context.memory_manager.memory.messages):
+            if msg.type != cf.MessageType.AI:
+                continue
+            text = msg.content if isinstance(msg.content, str) else ""
+            if not text:
+                continue
+            text_lower = text.lower()
+
+            # Only proceed if the text contains any intent/denial pattern
+            if not any(p in text_lower for p in _TOOL_INTENT_PATTERNS):
+                return None
+
+            # Check each available tool for mentions in the text
+            all_names = await self._all_tool_names
+            for tool_name in all_names:
+                if tool_name in text_lower:
+                    return tool_name
+
+            return None  # Only check most recent AI message
         return None
 
     def _last_assistant_has_code(self, context: AnalectRunContext) -> bool:

@@ -476,6 +476,8 @@ def get_infra_task_definition(current_time: str) -> str:
         "| `create_rule` / `list_rules` | Define and manage persistent behavior rules |",
         "| `search_notes` | Check past session knowledge before re-investigating |",
         "",
+        "**IMPORTANT**: All tools listed above are ALWAYS available. NEVER claim a tool is 'not available' or 'not supported'. If a tool call returns an error, retry with different parameters.",
+        "",
         "## Rules",
         "- ALWAYS verify current state before making changes (docker ps, docker service ls, etc.)",
         "- Use `docker stack deploy` for Swarm services, `docker compose` for standalone nodes",

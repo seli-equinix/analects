@@ -1,37 +1,50 @@
+# CCA Test Pipeline — Variable-driven test selection.
+#
+# Each test runs in its own pipeline for clean tracking.
+# Trigger via Makefile:  make test NAME=eva-code-trace
+# Or via API:  POST /pipeline  variables[RUN_TEST]=eva-code-trace
+#
+# RUN_TEST values:
+#   Individual:  eva-code-trace, code-trace, bash-execution, etc.
+#   Groups:      all-user, all-coder, all-integration
+#   Everything:  all
+#   Build only:  build
+
 stages:
   - build
   - preflight
-  - user
-  - websearch
-  - coder
-  - integration
-  - suite
+  - test
 
+# Only trigger from web UI, API, or scheduled — NOT on push.
+# This prevents 25 "manual" jobs cluttering every commit.
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 variables:
-  PHOENIX_PROJECT_NAME: "cca-tests-ci"
+  RUN_TEST: ""
+  PHOENIX_PROJECT_NAME: "cca-tests"
   CCA_RUN_JUDGE: "1"
   GIT_STRATEGY: fetch
 
 # ── Reusable template for all test jobs ──
 .test-base:
+  stage: test
   image: 192.168.4.204:5000/cca-tests/test-runner:latest
+  needs: [health-check]
   artifacts:
     when: always
     paths: ["report-*.xml"]
     reports:
       junit: "report-*.xml"
     expire_in: 90 days
-  when: manual
   allow_failure: true
 
 # ════════════════════════════════════════════
-#  BUILD
+#  BUILD — rebuild test image when deps change
 # ════════════════════════════════════════════
 
 build-test-image:
@@ -44,201 +57,228 @@ build-test-image:
     - docker build -t 192.168.4.204:5000/cca-tests/test-runner:latest -f Dockerfile.test .
     - docker push 192.168.4.204:5000/cca-tests/test-runner:latest
   rules:
-    - changes: [requirements-test.txt, Dockerfile.test]
-    - when: manual
-      allow_failure: true
+    - if: '$RUN_TEST == "build"'
 
 # ════════════════════════════════════════════
-#  PREFLIGHT
+#  PREFLIGHT — auto-runs before every test
 # ════════════════════════════════════════════
 
 health-check:
   stage: preflight
   image: 192.168.4.204:5000/cca-tests/test-runner:latest
   script:
-    - echo "=== CCA Server ===" && curl -sf --max-time 10 $CCA_BASE_URL/health | python3 -m json.tool
-    - echo "=== vLLM Server ===" && curl -sf --max-time 10 ${VLLM_BASE_URL%/v1}/health
-    - echo "=== Phoenix ===" && curl -sf --max-time 5 $PHOENIX_URL/ > /dev/null && echo "OK" || echo "WARNING - unreachable (non-fatal)"
-  when: manual
+    - echo "=== CCA Server ==="
+    - curl -sf --max-time 10 $CCA_BASE_URL/health | python3 -m json.tool
+    - echo "=== vLLM Server ==="
+    - curl -sf --max-time 10 ${VLLM_BASE_URL%/v1}/health && echo "OK"
+    - echo "=== Phoenix ==="
+    - curl -sf --max-time 5 $PHOENIX_URL/ > /dev/null && echo "OK" || echo "WARNING - unreachable (non-fatal)"
+  rules:
+    - if: $RUN_TEST    # Runs whenever RUN_TEST is set (any test trigger)
   timeout: 2m
 
 # ════════════════════════════════════════════
-#  USER TESTS (3 tests)
+#  USER TESTS
 # ════════════════════════════════════════════
 
 test-new-user-onboarding:
   extends: .test-base
-  stage: user
   script:
     - python -m pytest tests/user/test_new_user_onboarding.py -v --tb=short --with-judge --junitxml=report-new-user-onboarding.xml
+  rules:
+    - if: '$RUN_TEST == "new-user-onboarding"'
+    - if: '$RUN_TEST == "all-user"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-profile-crud:
   extends: .test-base
-  stage: user
   script:
     - python -m pytest tests/user/test_profile_crud.py -v --tb=short --with-judge --junitxml=report-profile-crud.xml
+  rules:
+    - if: '$RUN_TEST == "profile-crud"'
+    - if: '$RUN_TEST == "all-user"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-returning-user-memory:
   extends: .test-base
-  stage: user
   script:
     - python -m pytest tests/user/test_returning_user_memory.py -v --tb=short --with-judge --junitxml=report-returning-user.xml
+  rules:
+    - if: '$RUN_TEST == "returning-user-memory"'
+    - if: '$RUN_TEST == "all-user"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
-run-all-user:
-  extends: .test-base
-  stage: user
-  script:
-    - python -m pytest tests/user/ -v --tb=short --with-judge --junitxml=report-all-user.xml
-  timeout: 30m
-
 # ════════════════════════════════════════════
-#  WEBSEARCH TESTS (1 test)
+#  WEBSEARCH TESTS
 # ════════════════════════════════════════════
 
 test-web-search-flow:
   extends: .test-base
-  stage: websearch
   script:
     - python -m pytest tests/websearch/test_web_search_flow.py -v --tb=short --with-judge --junitxml=report-web-search.xml
+  rules:
+    - if: '$RUN_TEST == "web-search-flow"'
+    - if: '$RUN_TEST == "all-websearch"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 # ════════════════════════════════════════════
-#  CODER TESTS (9 tests)
+#  CODER TESTS
 # ════════════════════════════════════════════
 
 test-bash-execution:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_bash_execution.py -v --tb=short --with-judge --junitxml=report-bash-execution.xml
+  rules:
+    - if: '$RUN_TEST == "bash-execution"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-code-edit-flow:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_code_edit_flow.py -v --tb=short --with-judge --junitxml=report-code-edit.xml
+  rules:
+    - if: '$RUN_TEST == "code-edit-flow"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
 
 test-code-intelligence:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_code_intelligence.py -v --tb=short --with-judge --junitxml=report-code-intelligence.xml
-  timeout: 10m
+  rules:
+    - if: '$RUN_TEST == "code-intelligence"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
+  timeout: 15m
 
 test-code-trace:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_code_trace.py -v --tb=short --with-judge --junitxml=report-code-trace.xml
-  timeout: 10m
+  rules:
+    - if: '$RUN_TEST == "code-trace"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
+  timeout: 15m
 
 test-codebase-search:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_codebase_search.py -v --tb=short --with-judge --junitxml=report-codebase-search.xml
+  rules:
+    - if: '$RUN_TEST == "codebase-search"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-document-workflow:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_document_workflow.py -v --tb=short --with-judge --junitxml=report-document-workflow.xml
+  rules:
+    - if: '$RUN_TEST == "document-workflow"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-rule-lifecycle:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_rule_lifecycle.py -v --tb=short --with-judge --junitxml=report-rule-lifecycle.xml
+  rules:
+    - if: '$RUN_TEST == "rule-lifecycle"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-workspace-indexing:
   extends: .test-base
-  stage: coder
   script:
     - python -m pytest tests/coder/test_workspace_indexing.py -v --tb=short --with-judge --junitxml=report-workspace-indexing.xml
+  rules:
+    - if: '$RUN_TEST == "workspace-indexing"'
+    - if: '$RUN_TEST == "all-coder"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
 
-run-all-coder:
-  extends: .test-base
-  stage: coder
-  script:
-    - python -m pytest tests/coder/ -v --tb=short --with-judge --junitxml=report-all-coder.xml
-  timeout: 90m
-
 # ════════════════════════════════════════════
-#  INTEGRATION TESTS (11 tests)
+#  INTEGRATION TESTS
 # ════════════════════════════════════════════
 
 test-cross-session-recall:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_cross_session_recall.py -v --tb=short --with-judge --junitxml=report-cross-session.xml
+  rules:
+    - if: '$RUN_TEST == "cross-session-recall"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
 
 test-eva-code-trace:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_eva_code_trace.py -v --tb=short --with-judge --junitxml=report-eva-trace.xml
+  rules:
+    - if: '$RUN_TEST == "eva-code-trace"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
 
 test-infra-inspection:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_infra_inspection_flow.py -v --tb=short --with-judge --junitxml=report-infra-inspection.xml
+  rules:
+    - if: '$RUN_TEST == "infra-inspection"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 20m
 
 test-knowledge-pipeline:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_knowledge_pipeline.py -v --tb=short --with-judge --junitxml=report-knowledge-pipeline.xml
+  rules:
+    - if: '$RUN_TEST == "knowledge-pipeline"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
 
 test-routing-edge-cases:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_routing_edge_cases.py -v --tb=short --with-judge --junitxml=report-routing-edge.xml
+  rules:
+    - if: '$RUN_TEST == "routing-edge-cases"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 30m
 
 test-security-edge-cases:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_security_edge_cases.py -v --tb=short --with-judge --junitxml=report-security-edge.xml
+  rules:
+    - if: '$RUN_TEST == "security-edge-cases"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 10m
 
 test-tool-isolation:
   extends: .test-base
-  stage: integration
   script:
     - python -m pytest tests/integration/test_tool_isolation.py -v --tb=short --with-judge --junitxml=report-tool-isolation.xml
+  rules:
+    - if: '$RUN_TEST == "tool-isolation"'
+    - if: '$RUN_TEST == "all-integration"'
+    - if: '$RUN_TEST == "all"'
   timeout: 15m
-
-run-all-integration:
-  extends: .test-base
-  stage: integration
-  script:
-    - python -m pytest tests/integration/ -v --tb=short --with-judge --junitxml=report-all-integration.xml
-  timeout: 120m
-
-# ════════════════════════════════════════════
-#  FULL SUITE
-# ════════════════════════════════════════════
-
-run-all-tests:
-  extends: .test-base
-  stage: suite
-  script:
-    - python -m pytest tests/ -v --tb=short --with-judge --junitxml=report-all-tests.xml
-  timeout: 120m
