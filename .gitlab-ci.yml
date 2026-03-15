@@ -1,8 +1,12 @@
-# CCA Test Pipeline — Variable-driven test selection.
+# CCA Test Pipeline — Variable-driven test selection with per-test tracking.
 #
-# Each test runs in its own pipeline for clean tracking.
+# Each test runs in its own pipeline with:
+#   - GitLab environment (deployment history per test)
+#   - Phoenix project (isolated trace history per test)
+#
 # Trigger via Makefile:  make test NAME=eva-code-trace
-# Or via API:  POST /pipeline  variables[RUN_TEST]=eva-code-trace
+# Or via dashboard:      make dashboard  (interactive menu)
+# Or via API:            POST /pipeline  variables[RUN_TEST]=eva-code-trace
 #
 # RUN_TEST values:
 #   Individual:  eva-code-trace, code-trace, bash-execution, etc.
@@ -83,8 +87,13 @@ health-check:
 
 test-new-user-onboarding:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/new-user-onboarding"
   script:
     - python -m pytest tests/user/test_new_user_onboarding.py -v --tb=short --with-judge --junitxml=report-new-user-onboarding.xml
+  environment:
+    name: test/user/new-user-onboarding
+    tier: testing
   rules:
     - if: '$RUN_TEST == "new-user-onboarding"'
     - if: '$RUN_TEST == "all-user"'
@@ -93,8 +102,13 @@ test-new-user-onboarding:
 
 test-profile-crud:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/profile-crud"
   script:
     - python -m pytest tests/user/test_profile_crud.py -v --tb=short --with-judge --junitxml=report-profile-crud.xml
+  environment:
+    name: test/user/profile-crud
+    tier: testing
   rules:
     - if: '$RUN_TEST == "profile-crud"'
     - if: '$RUN_TEST == "all-user"'
@@ -103,8 +117,13 @@ test-profile-crud:
 
 test-returning-user-memory:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/returning-user-memory"
   script:
     - python -m pytest tests/user/test_returning_user_memory.py -v --tb=short --with-judge --junitxml=report-returning-user.xml
+  environment:
+    name: test/user/returning-user-memory
+    tier: testing
   rules:
     - if: '$RUN_TEST == "returning-user-memory"'
     - if: '$RUN_TEST == "all-user"'
@@ -117,8 +136,13 @@ test-returning-user-memory:
 
 test-web-search-flow:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/web-search-flow"
   script:
     - python -m pytest tests/websearch/test_web_search_flow.py -v --tb=short --with-judge --junitxml=report-web-search.xml
+  environment:
+    name: test/websearch/web-search-flow
+    tier: testing
   rules:
     - if: '$RUN_TEST == "web-search-flow"'
     - if: '$RUN_TEST == "all-websearch"'
@@ -131,8 +155,13 @@ test-web-search-flow:
 
 test-bash-execution:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/bash-execution"
   script:
     - python -m pytest tests/coder/test_bash_execution.py -v --tb=short --with-judge --junitxml=report-bash-execution.xml
+  environment:
+    name: test/coder/bash-execution
+    tier: testing
   rules:
     - if: '$RUN_TEST == "bash-execution"'
     - if: '$RUN_TEST == "all-coder"'
@@ -141,8 +170,13 @@ test-bash-execution:
 
 test-code-edit-flow:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/code-edit-flow"
   script:
     - python -m pytest tests/coder/test_code_edit_flow.py -v --tb=short --with-judge --junitxml=report-code-edit.xml
+  environment:
+    name: test/coder/code-edit-flow
+    tier: testing
   rules:
     - if: '$RUN_TEST == "code-edit-flow"'
     - if: '$RUN_TEST == "all-coder"'
@@ -151,8 +185,13 @@ test-code-edit-flow:
 
 test-code-intelligence:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/code-intelligence"
   script:
     - python -m pytest tests/coder/test_code_intelligence.py -v --tb=short --with-judge --junitxml=report-code-intelligence.xml
+  environment:
+    name: test/coder/code-intelligence
+    tier: testing
   rules:
     - if: '$RUN_TEST == "code-intelligence"'
     - if: '$RUN_TEST == "all-coder"'
@@ -161,8 +200,13 @@ test-code-intelligence:
 
 test-code-trace:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/code-trace"
   script:
     - python -m pytest tests/coder/test_code_trace.py -v --tb=short --with-judge --junitxml=report-code-trace.xml
+  environment:
+    name: test/coder/code-trace
+    tier: testing
   rules:
     - if: '$RUN_TEST == "code-trace"'
     - if: '$RUN_TEST == "all-coder"'
@@ -171,8 +215,13 @@ test-code-trace:
 
 test-codebase-search:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/codebase-search"
   script:
     - python -m pytest tests/coder/test_codebase_search.py -v --tb=short --with-judge --junitxml=report-codebase-search.xml
+  environment:
+    name: test/coder/codebase-search
+    tier: testing
   rules:
     - if: '$RUN_TEST == "codebase-search"'
     - if: '$RUN_TEST == "all-coder"'
@@ -181,8 +230,13 @@ test-codebase-search:
 
 test-document-workflow:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/document-workflow"
   script:
     - python -m pytest tests/coder/test_document_workflow.py -v --tb=short --with-judge --junitxml=report-document-workflow.xml
+  environment:
+    name: test/coder/document-workflow
+    tier: testing
   rules:
     - if: '$RUN_TEST == "document-workflow"'
     - if: '$RUN_TEST == "all-coder"'
@@ -191,8 +245,13 @@ test-document-workflow:
 
 test-rule-lifecycle:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/rule-lifecycle"
   script:
     - python -m pytest tests/coder/test_rule_lifecycle.py -v --tb=short --with-judge --junitxml=report-rule-lifecycle.xml
+  environment:
+    name: test/coder/rule-lifecycle
+    tier: testing
   rules:
     - if: '$RUN_TEST == "rule-lifecycle"'
     - if: '$RUN_TEST == "all-coder"'
@@ -201,8 +260,13 @@ test-rule-lifecycle:
 
 test-workspace-indexing:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/workspace-indexing"
   script:
     - python -m pytest tests/coder/test_workspace_indexing.py -v --tb=short --with-judge --junitxml=report-workspace-indexing.xml
+  environment:
+    name: test/coder/workspace-indexing
+    tier: testing
   rules:
     - if: '$RUN_TEST == "workspace-indexing"'
     - if: '$RUN_TEST == "all-coder"'
@@ -215,8 +279,13 @@ test-workspace-indexing:
 
 test-cross-session-recall:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/cross-session-recall"
   script:
     - python -m pytest tests/integration/test_cross_session_recall.py -v --tb=short --with-judge --junitxml=report-cross-session.xml
+  environment:
+    name: test/integration/cross-session-recall
+    tier: testing
   rules:
     - if: '$RUN_TEST == "cross-session-recall"'
     - if: '$RUN_TEST == "all-integration"'
@@ -225,8 +294,13 @@ test-cross-session-recall:
 
 test-eva-code-trace:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/eva-code-trace"
   script:
     - python -m pytest tests/integration/test_eva_code_trace.py -v --tb=short --with-judge --junitxml=report-eva-trace.xml
+  environment:
+    name: test/integration/eva-code-trace
+    tier: testing
   rules:
     - if: '$RUN_TEST == "eva-code-trace"'
     - if: '$RUN_TEST == "all-integration"'
@@ -235,8 +309,13 @@ test-eva-code-trace:
 
 test-infra-inspection:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/infra-inspection"
   script:
     - python -m pytest tests/integration/test_infra_inspection_flow.py -v --tb=short --with-judge --junitxml=report-infra-inspection.xml
+  environment:
+    name: test/integration/infra-inspection
+    tier: testing
   rules:
     - if: '$RUN_TEST == "infra-inspection"'
     - if: '$RUN_TEST == "all-integration"'
@@ -245,8 +324,13 @@ test-infra-inspection:
 
 test-knowledge-pipeline:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/knowledge-pipeline"
   script:
     - python -m pytest tests/integration/test_knowledge_pipeline.py -v --tb=short --with-judge --junitxml=report-knowledge-pipeline.xml
+  environment:
+    name: test/integration/knowledge-pipeline
+    tier: testing
   rules:
     - if: '$RUN_TEST == "knowledge-pipeline"'
     - if: '$RUN_TEST == "all-integration"'
@@ -255,8 +339,13 @@ test-knowledge-pipeline:
 
 test-routing-edge-cases:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/routing-edge-cases"
   script:
     - python -m pytest tests/integration/test_routing_edge_cases.py -v --tb=short --with-judge --junitxml=report-routing-edge.xml
+  environment:
+    name: test/integration/routing-edge-cases
+    tier: testing
   rules:
     - if: '$RUN_TEST == "routing-edge-cases"'
     - if: '$RUN_TEST == "all-integration"'
@@ -265,8 +354,13 @@ test-routing-edge-cases:
 
 test-security-edge-cases:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/security-edge-cases"
   script:
     - python -m pytest tests/integration/test_security_edge_cases.py -v --tb=short --with-judge --junitxml=report-security-edge.xml
+  environment:
+    name: test/integration/security-edge-cases
+    tier: testing
   rules:
     - if: '$RUN_TEST == "security-edge-cases"'
     - if: '$RUN_TEST == "all-integration"'
@@ -275,8 +369,13 @@ test-security-edge-cases:
 
 test-tool-isolation:
   extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "test/tool-isolation"
   script:
     - python -m pytest tests/integration/test_tool_isolation.py -v --tb=short --with-judge --junitxml=report-tool-isolation.xml
+  environment:
+    name: test/integration/tool-isolation
+    tier: testing
   rules:
     - if: '$RUN_TEST == "tool-isolation"'
     - if: '$RUN_TEST == "all-integration"'

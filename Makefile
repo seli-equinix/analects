@@ -1,12 +1,15 @@
 # CCA Test Runner
 #
-# Run individual tests via GitLab CI, tracked in Phoenix.
+# Interactive dashboard for running, monitoring, and tracking CCA tests.
+# Each test runs in its own GitLab pipeline with isolated Phoenix tracing.
 #
 # Usage:
-#   make test NAME=eva-code-trace      Run one test
+#   make dashboard                     Interactive test dashboard (recommended)
+#   make test NAME=eva-code-trace      Run one test (with live output)
 #   make test NAME=all-coder           Run all coder tests
 #   make test NAME=all                 Run everything
 #   make status                        Show recent results
+#   make history NAME=eva-code-trace   Show run history for one test
 #   make logs NAME=eva-code-trace      Show logs from last run
 #   make list                          Available test names
 #   make health                        Check CCA/vLLM/Phoenix health
@@ -15,14 +18,24 @@
 #   make local NAME=eva-code-trace     Run test locally (no CI)
 #   make phoenix                       Open Phoenix UI
 
-.PHONY: test status logs list health push build local phoenix retry cancel
+.PHONY: test status logs list health push build local phoenix retry cancel dashboard history
 
 CI := python3 scripts/ci.py
+DASH := python3 scripts/dashboard.py
 
 # GitLab remote for the cca-tests project
 GITLAB_REMOTE := http://root:Loveme-sex64@192.168.4.204:8929/root/cca-tests.git
 
-# ── Primary targets ──
+# ── Dashboard (primary interface) ──
+
+dashboard:
+	@$(DASH)
+
+history:
+	@test -n "$(NAME)" || { echo "Usage: make history NAME=<test-name>"; exit 1; }
+	@$(DASH) history $(NAME)
+
+# ── Test execution ──
 
 test:
 	@test -n "$(NAME)" || { echo "Usage: make test NAME=<test-name>"; echo ""; $(CI) list; exit 1; }
@@ -71,7 +84,7 @@ push:
 	@echo "Pushing to GitLab..."
 	@git push $(GITLAB_REMOTE) HEAD:main 2>&1 | tail -3
 	@echo ""
-	@echo "Done. Run 'make test NAME=...' to trigger a test."
+	@echo "Done. Run 'make dashboard' to see tests."
 
 # ── Local execution (bypass CI, run directly on node5) ──
 

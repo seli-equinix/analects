@@ -5,7 +5,7 @@ Trigger, monitor, and debug individual CCA tests via GitLab pipelines.
 Each test runs in its own pipeline for clean tracking and isolation.
 
 Usage:
-    python scripts/ci.py run <test-name>      # Trigger + wait + show result
+    python scripts/ci.py run <test-name>      # Trigger + stream live output + show result
     python scripts/ci.py status               # Show recent pipeline results
     python scripts/ci.py logs <test-name>     # Show logs from last run
     python scripts/ci.py retry <pipeline-id>  # Retry a failed pipeline
@@ -113,16 +113,92 @@ def _status_icon(status: str) -> str:
     return icons.get(status, status[:4])
 
 
+# ── Live Log Streaming ──
+
+
+def _stream_job_log(job_id: int) -> str:
+    """Stream job log in real-time via Etag polling. Returns final job status."""
+    last_etag = None
+    last_len = 0
+    url = f"{GITLAB_API}/projects/{PROJECT_ID}/jobs/{job_id}/trace"
+
+    print(f"\n{DIM}── Live Output {'─' * 50}{RESET}")
+
+    while True:
+        try:
+            headers = {"PRIVATE-TOKEN": TOKEN}
+            if last_etag:
+                headers["If-None-Match"] = last_etag
+
+            req = urllib.request.Request(url, headers=headers)
+            resp = urllib.request.urlopen(req, timeout=30)
+
+            log_text = resp.read().decode(errors="replace")
+            new_etag = resp.headers.get("Etag")
+            if new_etag:
+                last_etag = new_etag
+
+            # Print only new content
+            if len(log_text) > last_len:
+                new_content = log_text[last_len:]
+                # Strip ANSI section markers from GitLab runner output
+                print(new_content, end="", flush=True)
+                last_len = len(log_text)
+
+        except urllib.error.HTTPError as e:
+            if e.code == 304:
+                pass  # No new content — expected
+            else:
+                pass  # Transient error, keep polling
+        except Exception:
+            pass  # Network blip, keep polling
+
+        # Check if job finished
+        try:
+            job = _api("GET", f"/projects/{PROJECT_ID}/jobs/{job_id}")
+            if job["status"] in ("success", "failed", "canceled"):
+                # One final log fetch for any remaining output
+                try:
+                    req = urllib.request.Request(url, headers={"PRIVATE-TOKEN": TOKEN})
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    final_log = resp.read().decode(errors="replace")
+                    if len(final_log) > last_len:
+                        print(final_log[last_len:], end="", flush=True)
+                except Exception:
+                    pass
+                print(f"\n{DIM}{'─' * 65}{RESET}")
+                return job["status"]
+        except Exception:
+            pass  # Transient, keep going
+
+        time.sleep(2)
+
+
+def _find_test_job(pipeline_id: int, test_name: str) -> Optional[int]:
+    """Find the test job ID in a pipeline. Returns job_id or None."""
+    for _ in range(60):  # Wait up to 2 minutes for job to appear
+        jobs = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pipeline_id}/jobs?per_page=100")
+        for j in jobs:
+            if j["stage"] == "test":
+                return j["id"]
+            # Also check by name pattern
+            if test_name in j["name"] and j["stage"] != "build":
+                return j["id"]
+        time.sleep(2)
+    return None
+
+
 # ── Commands ──
 
 
 def cmd_run(test_name: str) -> None:
-    """Trigger a pipeline for a specific test and wait for completion."""
+    """Trigger a pipeline for a specific test and stream live output."""
     if test_name not in ALL_TESTS and test_name not in GROUPS and test_name != "build":
         print(f"{RED}Unknown test: {test_name}{RESET}")
         print(f"Run 'list' to see available tests.")
         sys.exit(1)
 
+    phoenix_project = f"test/{test_name}" if test_name in ALL_TESTS else "cca-tests"
     print(f"{BOLD}Triggering: {test_name}{RESET}")
     pipeline = _api("POST", f"/projects/{PROJECT_ID}/pipeline", {
         "ref": "main",
@@ -131,12 +207,15 @@ def cmd_run(test_name: str) -> None:
     pid = pipeline["id"]
     web_url = pipeline["web_url"]
     print(f"Pipeline:  {web_url}")
-    print(f"Phoenix:   {PHOENIX_URL}")
+    print(f"Phoenix:   {PHOENIX_URL}  (project: {phoenix_project})")
     print()
 
-    # Poll for completion
+    # Wait for test job to appear and start
     start = time.time()
     last_status = ""
+
+    # First, wait for preflight + test job to start
+    test_job_id = None
     while True:
         p = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}")
         status = p["status"]
@@ -146,20 +225,41 @@ def cmd_run(test_name: str) -> None:
             print(f"  {_status_icon(status)}  {status:12s}  ({elapsed:.0f}s)")
             last_status = status
 
-        if status in ("success", "failed", "canceled", "skipped"):
+        if status in ("canceled", "skipped"):
+            print(f"\n{BOLD}Pipeline {status}{RESET}")
+            sys.exit(1)
+
+        # Look for a running test job to stream
+        if test_job_id is None:
+            jobs = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}/jobs?per_page=100")
+            for j in jobs:
+                if j["stage"] == "test" and j["status"] in ("running", "success", "failed"):
+                    test_job_id = j["id"]
+                    break
+
+        if test_job_id is not None:
             break
 
-        time.sleep(5)
+        if status in ("success", "failed"):
+            # Pipeline finished without us finding a running test job
+            break
+
+        time.sleep(3)
+
+    # Stream live output if we found the test job
+    if test_job_id:
+        final_status = _stream_job_log(test_job_id)
+    else:
+        # No test job (e.g., build-only, or health-check failed)
+        final_status = last_status
 
     elapsed = time.time() - start
-    print()
 
-    # Show job results
+    # Show job results summary
     jobs = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}/jobs?per_page=100")
     test_jobs = [j for j in jobs if j["stage"] == "test"]
 
     if not test_jobs:
-        # Only health-check ran (or build)
         for j in jobs:
             dur = j.get("duration") or 0
             print(f"  {_status_icon(j['status'])}  {j['name']:35s}  {dur:.0f}s")
@@ -170,23 +270,24 @@ def cmd_run(test_name: str) -> None:
 
     print(f"\n{BOLD}Total: {elapsed:.0f}s{RESET}")
 
-    # If failed, show the failing job's log tail
-    failed_jobs = [j for j in test_jobs if j["status"] == "failed"]
-    if not failed_jobs:
-        failed_jobs = [j for j in jobs if j["status"] == "failed"]
-
-    for j in failed_jobs:
-        print(f"\n{RED}{'─' * 60}{RESET}")
-        print(f"{RED}FAILED: {j['name']}{RESET}")
-        print(f"{RED}{'─' * 60}{RESET}")
-        _show_job_log(j["id"], tail=80)
+    # If failed and we didn't stream the failing job, show log tail
+    if final_status != "success" and not test_job_id:
+        failed_jobs = [j for j in test_jobs if j["status"] == "failed"]
+        if not failed_jobs:
+            failed_jobs = [j for j in jobs if j["status"] == "failed"]
+        for j in failed_jobs:
+            print(f"\n{RED}{'─' * 60}{RESET}")
+            print(f"{RED}FAILED: {j['name']}{RESET}")
+            print(f"{RED}{'─' * 60}{RESET}")
+            _show_job_log(j["id"], tail=80)
 
     # Exit with appropriate code
-    sys.exit(0 if status == "success" else 1)
+    p = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}")
+    sys.exit(0 if p["status"] == "success" else 1)
 
 
 def cmd_status() -> None:
-    """Show recent pipeline results."""
+    """Show recent pipeline results with Phoenix project links."""
     pipelines = _api("GET", f"/projects/{PROJECT_ID}/pipelines?per_page=20")
 
     if not pipelines:
@@ -194,14 +295,14 @@ def cmd_status() -> None:
         return
 
     print(f"{BOLD}Recent CCA test pipelines:{RESET}\n")
-    print(f"  {'ID':>5s}  {'STATUS':6s}  {'TEST':35s}  {'DURATION':>8s}  {'WHEN'}")
-    print(f"  {'─' * 75}")
+    print(f"  {'ID':>5s}  {'STATUS':6s}  {'TEST':30s}  {'DUR':>6s}  {'PHOENIX':30s}  {'WHEN'}")
+    print(f"  {'─' * 95}")
 
     for p in pipelines:
         pid = p["id"]
         status = _status_icon(p["status"])
 
-        # Get the RUN_TEST variable from pipeline variables
+        # Get the RUN_TEST variable
         try:
             pvars = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}/variables")
             run_test = ""
@@ -217,19 +318,25 @@ def cmd_status() -> None:
         total_dur = sum(j.get("duration") or 0 for j in jobs)
         dur_str = f"{total_dur:.0f}s" if total_dur > 0 else "-"
 
+        # Phoenix project
+        if run_test in ALL_TESTS:
+            phoenix = f"test/{run_test}"
+        else:
+            phoenix = ""
+
         # Time ago
         created = p.get("created_at", "")
         time_str = created[:16].replace("T", " ") if created else ""
 
-        print(f"  {pid:>5d}  {status}  {run_test:35s}  {dur_str:>8s}  {time_str}")
+        print(f"  {pid:>5d}  {status}  {run_test:30s}  {dur_str:>6s}  {phoenix:30s}  {time_str}")
 
     print(f"\n  Pipeline URL: {GITLAB_URL}/root/cca-tests/-/pipelines")
+    print(f"  Environments: {GITLAB_URL}/root/cca-tests/-/environments")
     print(f"  Phoenix URL:  {PHOENIX_URL}")
 
 
 def cmd_logs(test_name: str) -> None:
     """Show logs from the last run of a specific test."""
-    # Find the most recent pipeline that ran this test
     pipelines = _api("GET", f"/projects/{PROJECT_ID}/pipelines?per_page=20")
 
     for p in pipelines:
@@ -256,7 +363,6 @@ def cmd_logs(test_name: str) -> None:
                 break
 
         if not target_job:
-            # Show any test-stage job
             test_jobs = [j for j in jobs if j["stage"] == "test"]
             if test_jobs:
                 target_job = test_jobs[0]
@@ -278,7 +384,6 @@ def cmd_retry(pipeline_id: str) -> None:
     result = _api("POST", f"/projects/{PROJECT_ID}/pipelines/{pid}/retry")
     print(f"Retried pipeline {pid}: {result.get('web_url', '')}")
     print("Waiting for completion...")
-    # Re-poll
     while True:
         p = _api("GET", f"/projects/{PROJECT_ID}/pipelines/{pid}")
         if p["status"] in ("success", "failed", "canceled"):
