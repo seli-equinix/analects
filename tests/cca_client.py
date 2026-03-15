@@ -6,7 +6,9 @@ This means tests won't fail just because a task takes longer than expected
 
 Only chat() creates OpenTelemetry spans — diagnostic/helper methods
 (health, list_users, find_user, cleanup) are untraced to keep Phoenix
-traces clean. Each test trace should show: test span → cca.chat → server spans.
+traces clean. Each test trace shows: test span → cca.chat child span.
+Server traces are independent (no traceparent injection) so they go to
+the cca-http Phoenix project while test traces go to per-test projects.
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ log = logging.getLogger(__name__)
 
 import httpx
 from opentelemetry import trace
-from opentelemetry.propagate import inject as otel_inject
 from opentelemetry.trace import StatusCode
 
 # Timeout defaults (seconds)
@@ -320,13 +321,12 @@ class CCAClient:
             pool=30.0,
         )
 
-        # Build headers with W3C trace context propagation
-        # This injects traceparent so server spans become children
-        # of the test trace in Phoenix (unified trace view).
+        # Headers — NO traceparent injection. Test spans go to the per-test
+        # Phoenix project (e.g. test/eva-code-trace), CCA server spans go to
+        # cca-http as independent traces. Correlation is via session_id.
         headers: Dict[str, str] = {"X-Session-Id": session_id}
         if user_id:
             headers["X-User-Id"] = user_id
-        otel_inject(headers)
 
         try:
             with self._client.stream(
