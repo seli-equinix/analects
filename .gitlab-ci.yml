@@ -20,7 +20,7 @@ variables:
 
 # ── Reusable template for all test jobs ──
 .test-base:
-  image: $CI_REGISTRY_IMAGE/test-runner:latest
+  image: 192.168.4.204:5000/cca-tests/test-runner:latest
   artifacts:
     when: always
     paths: ["report-*.xml"]
@@ -40,11 +40,11 @@ build-test-image:
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
   script:
-    - docker login -u root -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE/test-runner:latest -f Dockerfile.test .
-    - docker push $CI_REGISTRY_IMAGE/test-runner:latest
+    - docker login -u admin -p Loveme-sex64 192.168.4.204:5000
+    - docker build -t 192.168.4.204:5000/cca-tests/test-runner:latest -f Dockerfile.test .
+    - docker push 192.168.4.204:5000/cca-tests/test-runner:latest
   rules:
-    - changes: [tests/requirements-test.txt, Dockerfile.test]
+    - changes: [requirements-test.txt, Dockerfile.test]
     - when: manual
       allow_failure: true
 
@@ -54,7 +54,7 @@ build-test-image:
 
 health-check:
   stage: preflight
-  image: $CI_REGISTRY_IMAGE/test-runner:latest
+  image: 192.168.4.204:5000/cca-tests/test-runner:latest
   script:
     - echo "=== CCA Server ===" && curl -sf --max-time 10 $CCA_BASE_URL/health | python3 -m json.tool
     - echo "=== vLLM Server ===" && curl -sf --max-time 10 ${VLLM_BASE_URL%/v1}/health
