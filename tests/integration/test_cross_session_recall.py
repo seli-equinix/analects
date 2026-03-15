@@ -8,6 +8,7 @@ Exercises: note extraction, plan persistence, cross-session memory recall,
 context enrichment via <past_insights>.
 """
 
+import time
 import uuid
 
 import pytest
@@ -71,6 +72,24 @@ class TestCrossSessionRecall:
 
             trace_test.set_attribute("cca.test.s1t2_response", r2.content[:300])
             assert r2.content, "Session 1 Turn 2 returned empty"
+
+            # ── Verify: NoteObserver extracted notes from Session 1 ──
+            # Wait for async NoteObserver to fire (fire-and-forget task)
+            time.sleep(12)
+            notes = cca.search_notes("Project Helios", user_id=user_id)
+            trace_test.set_attribute("cca.test.s1_note_count", len(notes))
+            if notes:
+                notes_text = " ".join(
+                    n.get("content", "") + " " + n.get("note", "")
+                    for n in notes
+                ).lower()
+                trace_test.set_attribute(
+                    "cca.test.s1_notes_preview", notes_text[:500],
+                )
+                has_helios = "helios" in notes_text
+                trace_test.set_attribute("cca.test.s1_notes_has_helios", has_helios)
+            # Advisory: don't hard-fail if NoteObserver is slow,
+            # the main recall assertions below will catch real failures.
 
             # ── Session 2: Ask for a plan (new session, same user) ──
             msg3 = (

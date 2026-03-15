@@ -44,7 +44,7 @@ PHOENIX_ENDPOINT = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:431
 CCA_BASE_URL = os.getenv("CCA_BASE_URL", "http://localhost:8500")
 
 # Same Phoenix project as the CCA server — test + server spans unified
-PROJECT_NAME = "cca-http"
+PROJECT_NAME = os.getenv("PHOENIX_PROJECT_NAME", "cca-http")
 
 # Inter-test cooldown (seconds) to prevent server overload.
 # Each test triggers LLM inference on vLLM — without cooldown,
@@ -70,6 +70,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: Multi-tool integration tests")
     config.addinivalue_line("markers", "coder: CODER route tool tests (file, bash, search, graph, docs, rules)")
     config.addinivalue_line("markers", "slow: Tests that take more than 60 seconds")
+    config.addinivalue_line("markers", "trace: Code trace and assemble tests")
+    config.addinivalue_line("markers", "knowledge: Knowledge pipeline and memory tests")
+    config.addinivalue_line("markers", "isolation: Route tool isolation boundary tests")
+    config.addinivalue_line("markers", "eva: EVA project real-world pipeline tests")
 
 
 # ==================== Phoenix / OpenTelemetry ====================
@@ -342,6 +346,7 @@ def session_cleanup(cca):
             "Onboard_", "Memory_", "CRUD_", "Lifecycle_", "NoteTest_",
             "EditFlow_", "BashTest_", "TestUser_",
             "Planner_", "Coder_", "Infra_", "Recall_", "RouteUser_",
+            "InfraTest_",
         )
         stale = [
             u.get("display_name", "")
