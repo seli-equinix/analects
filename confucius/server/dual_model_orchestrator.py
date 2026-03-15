@@ -209,10 +209,13 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     _research_brief: str = PrivateAttr(default="")          # 8B's latest research text
     _research_executor_injected: bool = PrivateAttr(default=False)  # executor context sent once
     _search_call_count: int = PrivateAttr(default=0)        # total research tool calls made
-    # Duplication guard: True when the primary (80B) already streamed ANY text
-    # to the user.  If set, synthesis must be skipped — otherwise the 80B
-    # rewrites its entire response a second time (doubled output bug).
-    _primary_streamed_text: bool = PrivateAttr(default=False)
+    # Duplication guard: tracks how many characters the primary (80B) has
+    # streamed to the user.  If substantial (> 200 chars), synthesis is
+    # skipped — otherwise the 80B rewrites its entire response a second time
+    # (doubled output bug).  Short progress updates (< 200 chars) like
+    # "No results from grep" are NOT considered complete answers and won't
+    # prevent synthesis from incorporating earlier tool results.
+    _primary_streamed_chars: int = PrivateAttr(default=0)
     # Dynamic tool escalation (Phase 2): pool of disabled extensions that
     # can be selectively enabled mid-loop by the Functionary tool selector.
     _tool_pool: dict = PrivateAttr(default_factory=dict)
@@ -444,10 +447,11 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 )
             return ""  # Don't stream to user — only 80B speaks
 
-        # Primary (80B) path — track whether it streamed ANY text to the user.
-        # If it did, synthesis must be skipped to prevent duplicate output.
+        # Primary (80B) path — track how much text it streamed to the user.
+        # If substantial (> 200 chars), synthesis is skipped to prevent
+        # duplicate output.  Short progress updates don't count.
         if text.strip():
-            self._primary_streamed_text = True
+            self._primary_streamed_chars += len(text.strip())
 
         return await super().on_llm_output(text, context)
 
@@ -1108,15 +1112,19 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 # Normally its response was an internal working draft — force one
                 # more iteration to produce a single, clean, consolidated answer.
                 #
-                # Exception: if the primary (80B) already streamed text WITH CODE
-                # alongside a lightweight tool call (e.g. remember_user_fact),
-                # synthesis would make it rewrite the exact same response a second
-                # time. Skip synthesis in that case — the streamed response is
-                # already the complete, correct answer.
-                if self._primary_streamed_text:
+                # Exception: if the primary (80B) already streamed a substantial
+                # response (> 200 chars) alongside a lightweight tool call (e.g.
+                # remember_user_fact), synthesis would make it rewrite the exact
+                # same response a second time. Skip synthesis in that case — the
+                # streamed response is already the complete, correct answer.
+                # Short progress updates (< 200 chars) like "No results from grep"
+                # are NOT considered complete — synthesis should still run to
+                # incorporate earlier tool results (e.g. search_codebase).
+                if self._primary_streamed_chars > 200:
                     logger.info(
                         "Dual-model: skipping synthesis — primary already "
-                        "streamed text to user (would duplicate output)"
+                        "streamed %d chars to user (would duplicate output)",
+                        self._primary_streamed_chars,
                     )
                     # Run the same completion sequence as the normal end branch.
                     # Cannot fall through: we're inside an elif, so the else:break
