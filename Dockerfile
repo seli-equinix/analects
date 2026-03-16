@@ -122,7 +122,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 
 # Node.js ecosystem tools — yarn, pnpm, bun, TypeScript, Context Hub
 RUN npm install -g yarn pnpm typescript @aisuite/chub && \
-    yarn --version && pnpm --version && tsc --version && chub --version
+    yarn --version && pnpm --version && tsc --version && chub --cli-version
 
 # Bun — fast JavaScript runtime (multi-arch)
 RUN ARCH=$(dpkg --print-architecture) && \
