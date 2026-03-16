@@ -7,8 +7,8 @@ This means tests won't fail just because a task takes longer than expected
 Only chat() creates OpenTelemetry spans — diagnostic/helper methods
 (health, list_users, find_user, cleanup) are untraced to keep Phoenix
 traces clean. Each test trace shows: test span → cca.chat child span.
-Server traces are independent (no traceparent injection) so they go to
-the cca-http Phoenix project while test traces go to per-test projects.
+Server traces are routed to per-test Phoenix projects via the
+X-Phoenix-Project header (so test + server spans share a project).
 """
 
 from __future__ import annotations
@@ -120,10 +120,12 @@ class CCAClient:
         base_url: str = os.getenv("CCA_BASE_URL", "http://localhost:8500"),
         tracer: Optional[trace.Tracer] = None,
         idle_timeout: float = TIMEOUT_IDLE,
+        project_name: Optional[str] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.tracer = tracer or trace.get_tracer("cca-http")
         self.idle_timeout = idle_timeout
+        self.project_name = project_name
         self._client = httpx.Client(
             timeout=httpx.Timeout(
                 connect=TIMEOUT_CONNECT,
@@ -321,12 +323,14 @@ class CCAClient:
             pool=30.0,
         )
 
-        # Headers — NO traceparent injection. Test spans go to the per-test
-        # Phoenix project (e.g. test/eva-code-trace), CCA server spans go to
-        # cca-http as independent traces. Correlation is via session_id.
+        # Headers — NO traceparent injection. Test and server spans are
+        # independent traces correlated via session_id. X-Phoenix-Project
+        # routes server-side spans to the same per-test Phoenix project.
         headers: Dict[str, str] = {"X-Session-Id": session_id}
         if user_id:
             headers["X-User-Id"] = user_id
+        if self.project_name:
+            headers["X-Phoenix-Project"] = self.project_name
 
         try:
             with self._client.stream(

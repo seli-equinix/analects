@@ -167,6 +167,20 @@ def using_user(user_id: str) -> Any:
         return nullcontext()
 
 
+def using_project(project_name: str) -> Any:
+    """Context manager that overrides Phoenix project for all spans in scope.
+
+    Used by the request handler to route server-side traces to per-test
+    Phoenix projects when the X-Phoenix-Project header is present.
+    """
+    try:
+        from openinference.instrumentation import dangerously_using_project
+        return dangerously_using_project(project_name)
+    except ImportError:
+        from contextlib import nullcontext
+        return nullcontext()
+
+
 def get_current_context() -> otel_context.Context:
     """Capture the current OTel context for propagation to async tasks.
 

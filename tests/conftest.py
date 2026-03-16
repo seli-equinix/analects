@@ -307,7 +307,7 @@ def cca(phoenix_tracer):
     Uses streaming with idle timeout — no fixed total timeout.
     """
     _provider, tracer = phoenix_tracer
-    client = CCAClient(base_url=CCA_BASE_URL, tracer=tracer)
+    client = CCAClient(base_url=CCA_BASE_URL, tracer=tracer, project_name=PROJECT_NAME)
     yield client
     client.close()
 

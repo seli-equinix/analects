@@ -36,7 +36,7 @@ from ..core.tracing import (
     init_tracing, shutdown_tracing, get_tracer,
     get_current_context, attach_context, detach_context,
     OPENINFERENCE_SPAN_KIND, INPUT_VALUE, OUTPUT_VALUE,
-    SESSION_ID, USER_ID, using_session, using_user,
+    SESSION_ID, USER_ID, using_session, using_user, using_project,
 )
 from ..core.entry.base import EntryInput
 from ..lib.confucius import Confucius
@@ -394,6 +394,7 @@ async def chat_completions(
     request: ChatCompletionRequest,
     x_session_id: Optional[str] = Header(None, alias="X-Session-Id"),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_phoenix_project: Optional[str] = Header(None, alias="X-Phoenix-Project"),
     http_request: Request = None,  # type: ignore[assignment]
 ) -> Any:
     """OpenAI-compatible chat completions powered by CCA's full agent loop."""
@@ -408,22 +409,27 @@ async def chat_completions(
         carrier = dict(http_request.headers)
         incoming_ctx = otel_extract(carrier)
 
+    # Route server-side traces to a per-test Phoenix project when the
+    # X-Phoenix-Project header is present (set by test runner).
+    project_ctx = using_project(x_phoenix_project) if x_phoenix_project else nullcontext()
+
     # Wrap the ENTIRE request in a parent span so router, agent, and
     # note observer all appear as children of a single trace.
     ctx_kwargs = {"context": incoming_ctx} if incoming_ctx else {}
-    with tracer.start_as_current_span("cca.request", **ctx_kwargs) as request_span:
-        request_span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
+    with project_ctx:
+        with tracer.start_as_current_span("cca.request", **ctx_kwargs) as request_span:
+            request_span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
 
-        try:
-            result = await _handle_chat_completions(
-                request, x_session_id, x_user_id, http_request,
-                start_time, tracer, request_span,
-            )
-            request_span.set_status(StatusCode.OK)
-            return result
-        except Exception as e:
-            request_span.set_status(StatusCode.ERROR, str(e)[:500])
-            raise
+            try:
+                result = await _handle_chat_completions(
+                    request, x_session_id, x_user_id, http_request,
+                    start_time, tracer, request_span,
+                )
+                request_span.set_status(StatusCode.OK)
+                return result
+            except Exception as e:
+                request_span.set_status(StatusCode.ERROR, str(e)[:500])
+                raise
 
 
 async def _handle_chat_completions(

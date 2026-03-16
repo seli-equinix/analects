@@ -39,7 +39,7 @@
 
   .category { padding: 8px 24px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--cyan); background: rgba(57,210,192,0.05); border-bottom: 1px solid var(--border); }
 
-  .test-row { display: grid; grid-template-columns: 40px 1fr 100px 80px 100px 80px 60px 100px; align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border); gap: 8px; }
+  .test-row { display: grid; grid-template-columns: 40px 1fr 100px 80px 100px 80px 60px 180px; align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border); gap: 8px; }
   .history-bar { display: flex; gap: 3px; align-items: center; }
   .history-dot { width: 8px; height: 8px; border-radius: 50%; cursor: pointer; transition: transform 0.15s; }
   .history-dot:hover { transform: scale(1.5); }
@@ -430,6 +430,8 @@ function renderTests() {
       <div class="test-actions">
         <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();runTest('${t.name}')">Run</button>
         ${s ? `<button class="btn btn-sm" onclick="event.stopPropagation();showLog(${s.job_id},'${t.name}')">Log</button>` : ''}
+        ${s ? `<a class="btn btn-sm" href="${s.web_url}" target="_blank" onclick="event.stopPropagation()">Job</a>` : ''}
+        <a class="btn btn-sm" href="${PHOENIX_UI}/projects/test%2F${t.name}" target="_blank" onclick="event.stopPropagation()">Traces</a>
       </div>
     </div>`;
 
