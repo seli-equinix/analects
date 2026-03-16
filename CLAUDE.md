@@ -1,7 +1,6 @@
 # Confucius Code Agent (CCA) - Development Guide
 
-**Base Directory**: `nvidia-dgx-spark/cca/`
-**Fork**: https://github.com/seli-equinix/cca-swebench
+**Repo**: https://github.com/seli-equinix/confucius-code-agent
 **Upstream**: https://github.com/facebookresearch/cca-swebench
 **Origin**: Meta + Harvard research project (arXiv:2512.10398)
 
@@ -9,43 +8,44 @@
 
 ## CRITICAL: Two-Repo Git Workflow
 
-CCA is a **git submodule** of `docker-swarm-stacks`. It has its own repo.
+CCA is a standalone repo, also used as a **git submodule** of `docker-swarm-stacks` for deployment.
 
 ```
+confucius-code-agent/         <- standalone repo (seli-equinix/confucius-code-agent)
+  confucius/                  <- the agent framework
+
 docker-swarm-stacks/          <- parent repo (seli-equinix/docker-swarm-stacks)
   nvidia-dgx-spark/
-    cca/                      <- submodule (seli-equinix/cca-swebench)
-      confucius/              <- the agent framework
+    cca/                      <- submodule pointing to confucius-code-agent
 ```
 
-### Committing CCA Changes
+### Remotes
 
-CCA changes require **two commits** - one in the submodule, one in the parent:
+| Remote | URL | Purpose |
+|--------|-----|---------|
+| `origin` | `https://github.com/seli-equinix/confucius-code-agent.git` | Primary development |
+| `upstream` | `https://github.com/facebookresearch/cca-swebench.git` | Sync upstream changes |
+| `gitlab` | `http://192.168.4.204:8929/root/cca-tests.git` | CI/CD test pipelines |
+
+### Development Workflow
 
 ```bash
-# 1. Commit inside the submodule
-cd nvidia-dgx-spark/cca
-git add <files> && git commit -m "description" && git push origin main
+# Primary development (from standalone clone)
+git add <files> && git commit -m "description"
+git push origin main          # → GitHub
+git push gitlab HEAD:main     # → GitLab CI
 
-# 2. Update the parent repo's submodule pointer
-cd /home/seli/docker-swarm-stacks
-git add nvidia-dgx-spark/cca && git commit -m "update CCA submodule" && git push
+# Update submodule pointer in docker-swarm-stacks (for deployment)
+cd /path/to/docker-swarm-stacks/nvidia-dgx-spark/cca && git pull origin main
+cd /path/to/docker-swarm-stacks && git add nvidia-dgx-spark/cca && git commit -m "update CCA submodule" && git push
 ```
 
 ### Pulling Upstream Updates
 
 ```bash
-cd nvidia-dgx-spark/cca
 git fetch upstream
 git merge upstream/main
 git push origin main
-```
-
-### Cloning Fresh (on Spark1 or new machine)
-
-```bash
-cd docker-swarm-stacks
-git submodule update --init --recursive nvidia-dgx-spark/cca
 ```
 
 ---
