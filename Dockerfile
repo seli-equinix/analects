@@ -120,9 +120,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     ln -s /opt/rust/cargo/bin/rustc /usr/local/bin/rustc && \
     cargo --version && rustc --version
 
-# Node.js ecosystem tools — yarn, pnpm, bun, TypeScript
-RUN npm install -g yarn pnpm typescript && \
-    yarn --version && pnpm --version && tsc --version
+# Node.js ecosystem tools — yarn, pnpm, bun, TypeScript, Context Hub
+RUN npm install -g yarn pnpm typescript @aisuite/chub && \
+    yarn --version && pnpm --version && tsc --version && chub --version
 
 # Bun — fast JavaScript runtime (multi-arch)
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -142,6 +142,10 @@ RUN pip install --no-cache-dir yq
 # Build tree-sitter language grammars (Python, Bash, PowerShell, YAML, Markdown)
 COPY confucius/server/code_intelligence/build_languages.py /tmp/build_languages.py
 RUN python3 /tmp/build_languages.py && rm /tmp/build_languages.py
+
+# Pre-build context-hub documentation registry (Nutanix SDK docs)
+COPY docs/context-hub/content/ /app/context-hub/content/
+RUN chub build /app/context-hub/content -o /app/context-hub/dist
 
 # Install CCA package
 COPY pyproject.toml ./
