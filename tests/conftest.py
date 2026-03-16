@@ -1,9 +1,9 @@
 """CCA test suite — Phoenix-traced integration tests.
 
-Each test gets its own Phoenix project (e.g. test/eva-code-trace) via
-the PHOENIX_PROJECT_NAME env var set by GitLab CI. Test spans and CCA
-server spans are independent traces (no traceparent injection) so they
-go to separate Phoenix projects. Correlation is via session_id.
+Each test gets its own Phoenix project (e.g. eva-code-trace) via the
+PHOENIX_PROJECT_NAME env var set by GitLab CI. Test and CCA server
+spans share a single trace via W3C traceparent propagation — each test
+appears as one unified trace tree in Phoenix.
 
 Every test creates spans visible in the Phoenix UI (set PHOENIX_URL env var).
 
@@ -86,6 +86,10 @@ def phoenix_provider():
 
     The project name comes from PHOENIX_PROJECT_NAME env var (set by
     GitLab CI per test job). Falls back to 'cca-http' for local runs.
+
+    W3C traceparent propagation is enabled by default (opentelemetry-sdk
+    installs TraceContextTextMapPropagator globally). CCAClient's inject()
+    adds traceparent headers so server spans become children of the test trace.
     """
     resource = Resource.create({
         "service.name": PROJECT_NAME,
@@ -94,8 +98,6 @@ def phoenix_provider():
     provider = TracerProvider(resource=resource)
     exporter = OTLPSpanExporter(endpoint=PHOENIX_ENDPOINT, insecure=True)
     provider.add_span_processor(BatchSpanProcessor(exporter))
-    # NOT set as global — we pass the tracer explicitly to CCAClient.
-    # This prevents traceparent injection linking test and server traces.
     yield provider
     provider.shutdown()
 
