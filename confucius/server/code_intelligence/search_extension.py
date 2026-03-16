@@ -153,7 +153,7 @@ class CodeSearchExtension(ToolUseExtension):
                             "type": "string",
                             "description": (
                                 "Directory to index (default: all configured paths). "
-                                "Example: /workspace or /home/seli/docker-swarm-stacks"
+                                "Example: /workspace or /path/to/your/code"
                             ),
                         },
                         "force": {
