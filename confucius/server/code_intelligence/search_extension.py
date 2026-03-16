@@ -429,14 +429,18 @@ class CodeSearchExtension(ToolUseExtension):
     # ------------------------------------------------------------------
 
     def _get_configured_paths(self) -> list[str]:
-        """Get index paths from config.toml or defaults."""
+        """Get index paths from config.toml [indexer] section or defaults."""
         try:
-            from ...core.config import get_config
-            config = get_config()
-            raw = config.get("indexer", {})
-            paths = raw.get("paths", ["/workspace"])
-            if isinstance(paths, list):
-                return paths
+            import os
+            import tomllib
+            from ...core.config import _resolve_config_path
+            config_path = _resolve_config_path()
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    raw = tomllib.load(f)
+                paths = raw.get("indexer", {}).get("paths", ["/workspace"])
+                if isinstance(paths, list):
+                    return paths
         except Exception:
             pass
         return ["/workspace"]

@@ -3,6 +3,17 @@
 #
 # Switch between "cloud" and "local" provider sets per role.
 # Edit [active] section to toggle — no code changes needed.
+#
+# Required environment variables (set in .env or shell):
+#   REDIS_URL       — Full Redis URL with auth, e.g. redis://:password@host:6379/0
+#   GITLAB_TOKEN    — GitLab Personal Access Token (for CI scripts/dashboard)
+#   OPENAI_API_KEY  — Set to "dummy" for local vLLM (it doesn't validate keys)
+#
+# Optional environment variables:
+#   GITLAB_URL          — GitLab base URL (default: http://localhost:8929)
+#   GITLAB_PASS         — GitLab password (for workspace-sync)
+#   GITLAB_PROJECT_ID   — GitLab project ID (default: 4)
+#   PHOENIX_URL         — Phoenix UI URL (default: http://localhost:6006)
 
 # Models matching these prefixes route through OpenAILLMManager
 # (top-level key — must be before any [section] headers)

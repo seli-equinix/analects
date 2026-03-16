@@ -142,9 +142,9 @@ services:
       - ${CCA_WORKSPACE:-/data/cca-workspace}:/workspace:rw
       - ./workspace-sync:/sync:ro
     environment:
-      - GITLAB_URL=http://192.168.4.204:8929
-      - GITLAB_USER=root
-      - GITLAB_PASS=Loveme-sex64
+      - GITLAB_URL=${GITLAB_URL:-http://192.168.4.204:8929}
+      - GITLAB_USER=${GITLAB_USER:-root}
+      - GITLAB_PASS=${GITLAB_PASS}
       - SOURCE_PROJECTS=EVA
       - MIGRATION_PROJECTS=EVA-migration
       - SYNC_INTERVAL=60

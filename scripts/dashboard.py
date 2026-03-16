@@ -29,12 +29,13 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 # ── Configuration ──
+# All secrets come from environment variables. Set GITLAB_TOKEN in .env or shell.
 
-GITLAB_URL = "http://192.168.4.204:8929"
+GITLAB_URL = os.environ.get("GITLAB_URL", "http://192.168.4.204:8929")
 GITLAB_API = f"{GITLAB_URL}/api/v4"
-PROJECT_ID = 4
-TOKEN = "glpat-eZyXT0lQhgPgjkxOprDD8m86MQp1OjEH.01.0w0yemn3j"
-PHOENIX_URL = "http://192.168.4.204:6006"
+PROJECT_ID = int(os.environ.get("GITLAB_PROJECT_ID", "4"))
+TOKEN = os.environ.get("GITLAB_TOKEN", "")
+PHOENIX_URL = os.environ.get("PHOENIX_URL", "http://192.168.4.204:6006")
 
 # ANSI colors
 GREEN = "\033[92m"

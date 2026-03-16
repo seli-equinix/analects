@@ -26,8 +26,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+from ..backends import EMBEDDING_DIMS
+
 COLLECTION_NAME = "mcp_rules"
-EMBEDDING_DIMS = 4096
 
 
 @dataclass

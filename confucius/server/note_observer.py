@@ -43,9 +43,9 @@ logger = logging.getLogger(__name__)
 # Defaults from config.toml [services] (env vars override)
 # ---------------------------------------------------------------------------
 from ..core.config import get_services_config as _get_svc
+from .backends import EMBEDDING_DIMS
 
 NOTES_COLLECTION: str = "cca_notes"
-EMBEDDING_DIMS: int = 4096
 TRAJECTORY_KEY_PREFIX: str = "cca:trajectory:"
 TRAJECTORY_TTL: int = 86400  # 24 hours
 

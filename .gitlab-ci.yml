@@ -61,7 +61,7 @@ build-test-image:
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
   script:
-    - docker login -u admin -p Loveme-sex64 192.168.4.204:5000
+    - docker login -u ${REGISTRY_USER:-admin} -p ${REGISTRY_PASS} 192.168.4.204:5000
     - docker build -t 192.168.4.204:5000/cca-tests/test-runner:latest -f Dockerfile.test .
     - docker push 192.168.4.204:5000/cca-tests/test-runner:latest
   rules:

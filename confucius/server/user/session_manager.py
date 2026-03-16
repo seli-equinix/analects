@@ -41,8 +41,7 @@ USER_PROFILE_TTL: int = int(os.getenv("USER_PROFILE_TTL", "2592000"))  # 30 days
 PROFILES_COLLECTION: str = "user_profiles"
 CONTEXTS_COLLECTION: str = "user_contexts"
 
-# Embedding dimensions (Qwen3-Embedding-8B)
-EMBEDDING_DIMS: int = 4096
+from ..backends import EMBEDDING_DIMS
 
 # Redis key prefixes (namespaced to avoid collision with MCP sessions)
 SESSION_KEY_PREFIX: str = "cca:session:"

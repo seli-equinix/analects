@@ -23,8 +23,10 @@
 CI := python3 scripts/ci.py
 DASH := python3 scripts/dashboard.py
 
-# GitLab remote for the cca-tests project
-GITLAB_REMOTE := http://root:Loveme-sex64@192.168.4.204:8929/root/cca-tests.git
+# GitLab remote for the cca-tests project (credentials from env vars)
+GITLAB_REMOTE ?= http://$(GITLAB_USER):$(GITLAB_PASS)@192.168.4.204:8929/root/cca-tests.git
+GITLAB_USER ?= root
+GITLAB_PASS ?= $(error Set GITLAB_PASS env var or pass GITLAB_PASS=... to make)
 
 # ── Dashboard (primary interface) ──
 

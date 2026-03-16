@@ -8,7 +8,7 @@ set -eu
 
 GITLAB_URL="${GITLAB_URL:-http://192.168.4.204:8929}"
 GITLAB_USER="${GITLAB_USER:-root}"
-GITLAB_PASS="${GITLAB_PASS:-Loveme-sex64}"
+GITLAB_PASS="${GITLAB_PASS:?GITLAB_PASS env var is required}"
 LOCAL_PATH="/workspace"
 SYNC_INTERVAL="${SYNC_INTERVAL:-60}"
 CCA_URL="${CCA_URL:-http://localhost:8500}"

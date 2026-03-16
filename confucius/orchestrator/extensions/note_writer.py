@@ -27,9 +27,10 @@ from ..extensions.tool_use import ToolUseExtension
 
 logger = logging.getLogger(__name__)
 
+from ...server.backends import EMBEDDING_DIMS
+
 # Collection and key constants (shared with note_observer.py)
 NOTES_COLLECTION: str = "cca_notes"
-EMBEDDING_DIMS: int = 4096
 TRAJECTORY_KEY_PREFIX: str = "cca:trajectory:"
 
 

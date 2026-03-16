@@ -50,8 +50,9 @@ DEFAULT_SKIP_DIRS = {
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 CHUNK_SIZE = 8000
 CHUNK_OVERLAP = 1000
+from ..backends import EMBEDDING_DIMS
+
 COLLECTION_NAME = "codebase_files"
-EMBEDDING_DIMS = 4096
 
 
 def _detect_project(file_path: str, index_root: str) -> str:

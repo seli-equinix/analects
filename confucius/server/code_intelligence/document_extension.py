@@ -32,8 +32,9 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE_CHARS = 4000
 CHUNK_OVERLAP_CHARS = 400
 EPHEMERAL_TTL_HOURS = 24
+from ..backends import EMBEDDING_DIMS
+
 MAX_DOC_SIZE = 10 * 1024 * 1024  # 10 MB
-EMBEDDING_DIMS = 4096
 
 EPHEMERAL_COLLECTION = "ephemeral_docs"
 
