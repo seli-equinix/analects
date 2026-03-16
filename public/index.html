@@ -34,6 +34,7 @@
   .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
   .btn-primary:hover { background: #2ea043; }
   .btn-danger { border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: rgba(248,81,73,0.1); }
   .btn-sm { padding: 3px 10px; font-size: 12px; }
   .auto-refresh { margin-left: auto; font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 
@@ -63,7 +64,7 @@
   .test-traces { font-size: 12px; }
   .test-actions { display: flex; gap: 4px; }
 
-  /* Failed test row — clickable with red accent */
+  /* Failed test row */
   .test-row.failed { cursor: pointer; border-left: 3px solid var(--red); padding-left: 21px; }
   .test-row.failed:hover { background: rgba(248,81,73,0.04); }
   .test-row.failed .test-num { position: relative; }
@@ -80,14 +81,11 @@
   .failure-explanation { color: var(--text-dim); font-style: italic; margin-left: 20px; max-width: 700px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .failure-pytest { color: var(--text-dim); margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border); }
 
-  /* Log panel */
-  .log-panel { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 45vh; background: var(--surface); border-top: 2px solid var(--blue); z-index: 100; flex-direction: column; }
-  .log-panel.open { display: flex; }
-  .log-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--border); }
-  .log-header h3 { font-size: 14px; color: var(--text-bright); }
-  .log-body { flex: 1; overflow-y: auto; padding: 12px 16px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--text-dim); }
-  .log-body.has-content { padding: 0; }
-  .log-body pre { margin: 0; padding: 12px 16px; }
+  /* Status banner */
+  .status-banner { display: none; padding: 8px 24px; font-size: 13px; border-bottom: 1px solid var(--border); background: rgba(88,166,255,0.08); color: var(--blue); }
+  .status-banner.active { display: block; }
+  .status-banner.error { background: rgba(248,81,73,0.08); color: var(--red); }
+  .status-banner.success { background: rgba(63,185,80,0.08); color: var(--green); }
 
   .loading { text-align: center; padding: 40px; color: var(--text-dim); }
   .error-msg { color: var(--red); padding: 8px 16px; font-size: 13px; }
@@ -119,6 +117,7 @@
   <button class="btn" onclick="runGroup('all-websearch')">Websearch</button>
   <button class="btn" onclick="runGroup('all-coder')">Coder</button>
   <button class="btn" onclick="runGroup('all-integration')">Integration</button>
+  <button class="btn btn-danger" onclick="clearAll()">Clear All</button>
   <button class="btn" onclick="refreshAll()">Refresh</button>
   <div class="auto-refresh">
     <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
@@ -127,18 +126,9 @@
   </div>
 </div>
 
-<div id="test-list"><div class="loading">Loading...</div></div>
+<div class="status-banner" id="statusBanner"></div>
 
-<div class="log-panel" id="logPanel">
-  <div class="log-header">
-    <h3 id="logTitle">Logs</h3>
-    <div>
-      <a id="logJobLink" href="#" target="_blank" style="font-size:12px;margin-right:12px;">Open in GitLab</a>
-      <button class="btn btn-sm" onclick="closeLog()">Close</button>
-    </div>
-  </div>
-  <div class="log-body" id="logBody">Waiting for output...</div>
-</div>
+<div id="test-list"><div class="loading">Loading...</div></div>
 
 <script>
 const GITLAB_API = 'http://192.168.4.204:8929/api/v4';
@@ -146,6 +136,15 @@ const PROJECT_ID = 4;
 const TOKEN = 'glpat-eZyXT0lQhgPgjkxOprDD8m86MQp1OjEH.01.0w0yemn3j';
 const PHOENIX_GQL = 'http://192.168.4.204:6007/graphql';
 const PHOENIX_UI = 'http://192.168.4.204:6006';
+const QDRANT_API = 'http://192.168.4.205:6333';
+const CCA_API = 'http://192.168.4.205:8500';
+
+// Test user prefixes created by test fixtures (NOT real users like sean/seli)
+const TEST_USER_PREFIXES = [
+  'Onboard_', 'EditFlow_', 'BashTest_', 'Memory_', 'CRUD_',
+  'Lifecycle_', 'NoteTest_', 'TestUser_', 'Planner_', 'Coder_',
+  'Infra_', 'Recall_', 'RouteUser_', 'InfraTest_'
+];
 
 const TESTS = [
   {name:'new-user-onboarding', cat:'user', turns:4, exercises:'user_id, profile, notes, preference recall'},
@@ -175,31 +174,37 @@ let failureCache = {};
 let selectedRun = {};
 let refreshTimer = null;
 let countdownSec = 30;
-let logPollTimer = null;
 
 function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function showStatus(msg, type = 'info') {
+  const el = document.getElementById('statusBanner');
+  el.textContent = msg;
+  el.className = 'status-banner active' + (type === 'error' ? ' error' : type === 'success' ? ' success' : '');
+  if (type === 'success') setTimeout(() => { el.className = 'status-banner'; }, 5000);
+}
+
+function hideStatus() {
+  document.getElementById('statusBanner').className = 'status-banner';
+}
+
 function parseFailureInfo(logText) {
   const info = { type: 'unknown', summary: '', details: [], pytestSummary: '' };
 
-  // Always extract pytest summary
   const sm = logText.match(/=+ (.+(?:passed|failed|error).+?) =+\s*$/m);
   if (sm) info.pytestSummary = sm[1].trim();
 
-  // 1. Judge failures
   const judgeIdx = logText.indexOf('Judge Failures');
   if (judgeIdx > -1) {
     info.type = 'judge';
-    // Parse FAIL/PASS lines from Judge Report
     const reportMatch = logText.match(/LLM Judge Report[\s\S]*?(?=------|={10,})/);
     if (reportMatch) {
       for (const m of reportMatch[0].matchAll(/^\s*(FAIL|PASS)\s+\[turn (\d+)\]\s+(\S+)\s+=\s+(\S+)/gm)) {
         info.details.push({ passed: m[1]==='PASS', turn: +m[2], evaluator: m[3], label: m[4] });
       }
     }
-    // Parse explanations from Judge Failures section
     const failSection = logText.substring(judgeIdx);
     for (const m of failSection.matchAll(/^\s+\S+\s+\[turn (\d+)\]\s+::\s+(\S+):\s+(\S+)\n\s+(.+)/gm)) {
       const d = info.details.find(x => x.evaluator===m[2] && x.turn===+m[1] && !x.passed);
@@ -212,7 +217,6 @@ function parseFailureInfo(logText) {
     return info;
   }
 
-  // 2. Pytest assertion failures
   const pytestFails = [...logText.matchAll(/FAILED\s+\S+::(\S+)\s+-\s+(.*?)$/gm)];
   if (pytestFails.length > 0) {
     info.type = 'pytest';
@@ -223,7 +227,6 @@ function parseFailureInfo(logText) {
     return info;
   }
 
-  // 3. Infrastructure failures
   const infraPats = [
     /CCA AAAM server not healthy[^\n]*/,
     /SKIP.*not healthy[^\n]*/,
@@ -265,12 +268,10 @@ async function selectRun(testName, jobId) {
   const run = runs.find(r => r.job_id === jobId);
   if (!run) return;
   selectedRun[testName] = run;
-  // If the selected run is failed, fetch its failure info
   if (run.status === 'failed') {
     await fetchFailureInfo(testName, jobId);
   }
   renderTests();
-  // Auto-expand the failure panel if failed
   if (run.status === 'failed') {
     const row = document.querySelector(`.test-row[data-test="${testName}"]`);
     const panel = document.getElementById(`fail-${testName}`);
@@ -298,6 +299,10 @@ async function gitlabGet(path) {
   return r.json();
 }
 
+async function gitlabDelete(path) {
+  return fetch(`${GITLAB_API}${path}`, {method:'DELETE', headers:{'PRIVATE-TOKEN':TOKEN}});
+}
+
 async function phoenixQuery(query) {
   try {
     const r = await fetch(PHOENIX_GQL, {
@@ -306,6 +311,25 @@ async function phoenixQuery(query) {
     });
     return (await r.json()).data;
   } catch(e) { return null; }
+}
+
+async function qdrantScroll(collection, limit = 500) {
+  try {
+    const r = await fetch(`${QDRANT_API}/collections/${collection}/points/scroll`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ limit, with_payload: true, with_vector: false })
+    });
+    const data = await r.json();
+    return data.result?.points || [];
+  } catch(e) { return []; }
+}
+
+async function qdrantDelete(collection, ids) {
+  if (!ids.length) return;
+  await fetch(`${QDRANT_API}/collections/${collection}/points/delete`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ points: ids })
+  });
 }
 
 // ── Data fetching ──
@@ -327,7 +351,6 @@ async function fetchPipelineStatus() {
       }
     } catch(e) {}
   }
-  // Sort each test's runs newest-first, keep max 10
   for (const name in status) {
     status[name].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     status[name] = status[name].slice(0, 10);
@@ -346,6 +369,118 @@ async function fetchPhoenixProjects() {
     result[e.node.name] = e.node;
   }
   return result;
+}
+
+// ── Clear functions ──
+
+async function clearAll() {
+  if (!confirm('Clear ALL test data?\n\nThis will delete:\n- All GitLab pipeline runs\n- All Phoenix test projects & traces\n- Test user profiles from Qdrant\n- Test notes from Qdrant\n- Test workspace files\n\nReal user data (sean/seli) will NOT be affected.')) return;
+
+  const log = [];
+  showStatus('Clearing all test data...');
+
+  // 1. GitLab: delete all pipelines (paginated)
+  try {
+    let deleted = 0;
+    let page = 1;
+    while (true) {
+      const pipelines = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100&page=${page}`);
+      if (!pipelines.length) break;
+      for (const p of pipelines) {
+        await gitlabDelete(`/projects/${PROJECT_ID}/pipelines/${p.id}`);
+        deleted++;
+      }
+      page++;
+    }
+    log.push(`GitLab: ${deleted} pipelines deleted`);
+  } catch(e) { log.push(`GitLab: ${e.message}`); }
+
+  // 2. Phoenix: delete all test/* projects
+  try {
+    let ct = 0;
+    for (const [name, data] of Object.entries(phoenixData)) {
+      if (name.startsWith('test/') || name.startsWith('test-')) {
+        await phoenixQuery(`mutation { deleteProject(id: "${data.id}") }`);
+        ct++;
+      }
+    }
+    log.push(`Phoenix: ${ct} test projects deleted`);
+  } catch(e) { log.push(`Phoenix: ${e.message}`); }
+
+  // 3. Qdrant: delete test user profiles
+  try {
+    const points = await qdrantScroll('user_profiles');
+    const testIds = points
+      .filter(p => TEST_USER_PREFIXES.some(pfx => (p.payload?.display_name || '').startsWith(pfx)))
+      .map(p => p.id);
+    await qdrantDelete('user_profiles', testIds);
+    log.push(`Qdrant profiles: ${testIds.length} deleted, ${points.length - testIds.length} kept`);
+  } catch(e) { log.push(`Qdrant profiles: ${e.message}`); }
+
+  // 4. Qdrant: delete test notes (keep real user notes)
+  try {
+    const realUsers = new Set(['sean', 'seli']);
+    const points = await qdrantScroll('cca_notes');
+    const testIds = points
+      .filter(p => !realUsers.has(p.payload?.user_id))
+      .map(p => p.id);
+    await qdrantDelete('cca_notes', testIds);
+    log.push(`Qdrant notes: ${testIds.length} deleted, ${points.length - testIds.length} kept`);
+  } catch(e) { log.push(`Qdrant notes: ${e.message}`); }
+
+  // 5. Workspace: delete test files
+  try {
+    const r = await fetch(`${CCA_API}/workspace/files?prefix=`, {method:'DELETE'});
+    const data = await r.json();
+    log.push(`Workspace: ${(data.deleted || []).length} files deleted`);
+  } catch(e) { log.push(`Workspace: ${e.message}`); }
+
+  // Reset dashboard state
+  testStatus = {};
+  phoenixData = {};
+  failureCache = {};
+  selectedRun = {};
+  showStatus('Clear complete: ' + log.join(' | '), 'success');
+  await refreshAll();
+}
+
+async function clearTest(name) {
+  if (!confirm(`Clear all data for "${name}"?\n\nThis will delete:\n- GitLab pipeline runs containing this test\n- Phoenix project & traces for test/${name}`)) return;
+
+  const log = [];
+  showStatus(`Clearing ${name}...`);
+
+  // 1. GitLab: delete pipelines that contain this test's jobs
+  try {
+    const runs = testStatus[name] || [];
+    const pipelineIds = [...new Set(runs.map(r => r.pipeline_id))];
+    for (const pid of pipelineIds) {
+      await gitlabDelete(`/projects/${PROJECT_ID}/pipelines/${pid}`);
+    }
+    log.push(`GitLab: ${pipelineIds.length} pipelines`);
+  } catch(e) { log.push(`GitLab: ${e.message}`); }
+
+  // 2. Phoenix: delete the test project
+  try {
+    const ph = phoenixData[`test/${name}`];
+    if (ph && ph.id) {
+      await phoenixQuery(`mutation { deleteProject(id: "${ph.id}") }`);
+      log.push('Phoenix: project deleted');
+    } else {
+      log.push('Phoenix: no project');
+    }
+  } catch(e) { log.push(`Phoenix: ${e.message}`); }
+
+  // Reset this test's dashboard state
+  delete testStatus[name];
+  delete phoenixData[`test/${name}`];
+  delete selectedRun[name];
+  // Clear all failure cache entries for this test
+  for (const key of Object.keys(failureCache)) {
+    if (key.startsWith(`${name}:`)) delete failureCache[key];
+  }
+  showStatus(`Cleared ${name}: ${log.join(' | ')}`, 'success');
+  await refreshAll();
 }
 
 // ── Rendering ──
@@ -385,7 +520,6 @@ function renderTests() {
       html += `<div class="category">${t.cat}</div>`;
     }
     const runs = testStatus[t.name] || [];
-    // Use selected run if set, otherwise latest (index 0)
     const s = selectedRun[t.name] || runs[0] || null;
     const ph = phoenixData[`test/${t.name}`] || {};
     const traces = ph.traceCount || 0;
@@ -403,7 +537,7 @@ function renderTests() {
     const failCls = isFailed ? ' failed' : '';
     const failClick = isFailed ? ` onclick="toggleFailure('${t.name}', event)"` : '';
 
-    // History dots — oldest first (left-to-right = chronological)
+    // History dots
     let dotsHtml = '<div class="history-bar">';
     const display = runs.slice(0, 10).reverse();
     for (const run of display) {
@@ -429,7 +563,7 @@ function renderTests() {
       <div class="test-traces">${phoenixLink}</div>
       <div class="test-actions">
         <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();runTest('${t.name}')">Run</button>
-        ${s ? `<button class="btn btn-sm" onclick="event.stopPropagation();showLog(${s.job_id},'${t.name}')">Log</button>` : ''}
+        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();clearTest('${t.name}')">Clear</button>
         ${s ? `<a class="btn btn-sm" href="http://192.168.4.204:8929/root/cca-tests/-/jobs/${s.job_id}" target="_blank" onclick="event.stopPropagation()">Job</a>` : ''}
         <a class="btn btn-sm" href="${phUrl}" target="_blank" onclick="event.stopPropagation()">Traces</a>
       </div>
@@ -481,75 +615,13 @@ async function runTest(name) {
   });
   const pipeline = await r.json();
   if (pipeline.id) {
-    // Poll for the test job to appear, then show live log
-    setTimeout(async () => {
-      const jobs = await gitlabGet(`/projects/${PROJECT_ID}/pipelines/${pipeline.id}/jobs`);
-      const testJob = jobs.find(j => j.name === `test-${name}`);
-      if (testJob) {
-        showLog(testJob.id, name, true);
-      }
-      await refreshAll();
-    }, 3000);
+    showStatus(`Pipeline #${pipeline.id} started for ${name}`);
+    setTimeout(async () => { await refreshAll(); }, 3000);
   }
 }
 
 function runGroup(group) {
   runTest(group);
-}
-
-async function showLog(jobId, testName, live = false) {
-  const panel = document.getElementById('logPanel');
-  const body = document.getElementById('logBody');
-  const title = document.getElementById('logTitle');
-  const link = document.getElementById('logJobLink');
-
-  panel.classList.add('open');
-  title.textContent = `${testName} — Job #${jobId}`;
-  link.href = `http://192.168.4.204:8929/root/cca-tests/-/jobs/${jobId}`;
-  body.textContent = 'Loading...';
-
-  // Clear previous polling
-  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
-
-  async function fetchLog() {
-    try {
-      const r = await fetch(`${GITLAB_API}/projects/${PROJECT_ID}/jobs/${jobId}/trace`, {
-        headers: {'PRIVATE-TOKEN': TOKEN}
-      });
-      const text = await r.text();
-      // Strip ANSI codes and GitLab section markers
-      const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-                        .replace(/section_(start|end):\d+:[^\n]*/g, '')
-                        .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z \d{2}O /g, '');
-      body.textContent = clean;
-      body.scrollTop = body.scrollHeight;
-      return r.headers.get('X-Gitlab-Job-Status') || 'unknown';
-    } catch(e) {
-      body.textContent = `Error fetching log: ${e.message}`;
-      return 'error';
-    }
-  }
-
-  await fetchLog();
-
-  if (live) {
-    logPollTimer = setInterval(async () => {
-      const text = await fetchLog();
-      // Check if job is done
-      const job = await gitlabGet(`/projects/${PROJECT_ID}/jobs/${jobId}`);
-      if (['success','failed','canceled'].includes(job.status)) {
-        clearInterval(logPollTimer);
-        logPollTimer = null;
-        await fetchLog(); // Final fetch
-        await refreshAll();
-      }
-    }, 3000);
-  }
-}
-
-function closeLog() {
-  document.getElementById('logPanel').classList.remove('open');
-  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
 }
 
 // ── Refresh ──
@@ -563,7 +635,6 @@ async function refreshAll() {
   phoenixData = phoenix;
   renderTests();
 
-  // Progressive: fetch failure details for the active run of failed tests
   let fetched = false;
   for (const t of TESTS) {
     const runs = testStatus[t.name] || [];
