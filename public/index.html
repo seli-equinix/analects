@@ -133,7 +133,7 @@
 <script>
 const GITLAB_API = 'http://192.168.4.204:8929/api/v4';
 const PROJECT_ID = 4;
-const TOKEN = 'glpat-eZyXT0lQhgPgjkxOprDD8m86MQp1OjEH.01.0w0yemn3j';
+const TOKEN = 'glpat-JZek4qzMeInxn9K7EIfELm86MQp1OjEH.01.0w13uxfyj';
 const PHOENIX_GQL = 'http://192.168.4.204:6007/graphql';
 const PHOENIX_UI = 'http://192.168.4.204:6006';
 const QDRANT_API = 'http://192.168.4.205:6333';
@@ -395,11 +395,12 @@ async function clearAll() {
     log.push(`GitLab: ${deleted} pipelines deleted`);
   } catch(e) { log.push(`GitLab: ${e.message}`); }
 
-  // 2. Phoenix: delete all test/* projects
+  // 2. Phoenix: delete all test projects (matching known test names)
   try {
+    const testNames = new Set(TESTS.map(t => t.name));
     let ct = 0;
     for (const [name, data] of Object.entries(phoenixData)) {
-      if (name.startsWith('test/') || name.startsWith('test-')) {
+      if (testNames.has(name) || name === 'cca.request') {
         await phoenixQuery(`mutation { deleteProject(id: "${data.id}") { __typename } }`);
         ct++;
       }
@@ -469,7 +470,7 @@ async function clearAll() {
 }
 
 async function clearTest(name) {
-  if (!confirm(`Clear all data for "${name}"?\n\nThis will delete:\n- GitLab pipeline runs containing this test\n- Phoenix project & traces for test/${name}`)) return;
+  if (!confirm(`Clear all data for "${name}"?\n\nThis will delete:\n- GitLab pipeline runs containing this test\n- Phoenix project & traces for ${name}`)) return;
 
   const log = [];
   showStatus(`Clearing ${name}...`);
@@ -486,7 +487,7 @@ async function clearTest(name) {
 
   // 2. Phoenix: delete the test project
   try {
-    const ph = phoenixData[`test/${name}`];
+    const ph = phoenixData[name];
     if (ph && ph.id) {
       await phoenixQuery(`mutation { deleteProject(id: "${ph.id}") { __typename } }`);
       log.push('Phoenix: project deleted');
@@ -497,7 +498,7 @@ async function clearTest(name) {
 
   // Reset this test's dashboard state
   delete testStatus[name];
-  delete phoenixData[`test/${name}`];
+  delete phoenixData[name];
   delete selectedRun[name];
   // Clear all failure cache entries for this test
   for (const key of Object.keys(failureCache)) {
@@ -545,7 +546,7 @@ function renderTests() {
     }
     const runs = testStatus[t.name] || [];
     const s = selectedRun[t.name] || runs[0] || null;
-    const ph = phoenixData[`test/${t.name}`] || {};
+    const ph = phoenixData[t.name] || {};
     const traces = ph.traceCount || 0;
     totalTraces += traces;
 

@@ -416,8 +416,9 @@ async def chat_completions(
     # Wrap the ENTIRE request in a parent span so router, agent, and
     # note observer all appear as children of a single trace.
     ctx_kwargs = {"context": incoming_ctx} if incoming_ctx else {}
+    span_name = x_phoenix_project if x_phoenix_project else "cca.request"
     with project_ctx:
-        with tracer.start_as_current_span("cca.request", **ctx_kwargs) as request_span:
+        with tracer.start_as_current_span(span_name, **ctx_kwargs) as request_span:
             request_span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
 
             try:

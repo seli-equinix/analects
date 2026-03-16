@@ -91,7 +91,7 @@ health-check:
 test-new-user-onboarding:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/new-user-onboarding"
+    PHOENIX_PROJECT_NAME: "new-user-onboarding"
   script:
     - python -m pytest tests/user/test_new_user_onboarding.py -v --tb=short --with-judge --junitxml=report-new-user-onboarding.xml
   environment:
@@ -106,7 +106,7 @@ test-new-user-onboarding:
 test-profile-crud:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/profile-crud"
+    PHOENIX_PROJECT_NAME: "profile-crud"
   script:
     - python -m pytest tests/user/test_profile_crud.py -v --tb=short --with-judge --junitxml=report-profile-crud.xml
   environment:
@@ -121,7 +121,7 @@ test-profile-crud:
 test-returning-user-memory:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/returning-user-memory"
+    PHOENIX_PROJECT_NAME: "returning-user-memory"
   script:
     - python -m pytest tests/user/test_returning_user_memory.py -v --tb=short --with-judge --junitxml=report-returning-user.xml
   environment:
@@ -140,7 +140,7 @@ test-returning-user-memory:
 test-web-search-flow:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/web-search-flow"
+    PHOENIX_PROJECT_NAME: "web-search-flow"
   script:
     - python -m pytest tests/websearch/test_web_search_flow.py -v --tb=short --with-judge --junitxml=report-web-search.xml
   environment:
@@ -159,7 +159,7 @@ test-web-search-flow:
 test-bash-execution:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/bash-execution"
+    PHOENIX_PROJECT_NAME: "bash-execution"
   script:
     - python -m pytest tests/coder/test_bash_execution.py -v --tb=short --with-judge --junitxml=report-bash-execution.xml
   environment:
@@ -174,7 +174,7 @@ test-bash-execution:
 test-code-edit-flow:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/code-edit-flow"
+    PHOENIX_PROJECT_NAME: "code-edit-flow"
   script:
     - python -m pytest tests/coder/test_code_edit_flow.py -v --tb=short --with-judge --junitxml=report-code-edit.xml
   environment:
@@ -189,7 +189,7 @@ test-code-edit-flow:
 test-code-intelligence:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/code-intelligence"
+    PHOENIX_PROJECT_NAME: "code-intelligence"
   script:
     - python -m pytest tests/coder/test_code_intelligence.py -v --tb=short --with-judge --junitxml=report-code-intelligence.xml
   environment:
@@ -204,7 +204,7 @@ test-code-intelligence:
 test-code-trace:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/code-trace"
+    PHOENIX_PROJECT_NAME: "code-trace"
   script:
     - python -m pytest tests/coder/test_code_trace.py -v --tb=short --with-judge --junitxml=report-code-trace.xml
   environment:
@@ -219,7 +219,7 @@ test-code-trace:
 test-codebase-search:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/codebase-search"
+    PHOENIX_PROJECT_NAME: "codebase-search"
   script:
     - python -m pytest tests/coder/test_codebase_search.py -v --tb=short --with-judge --junitxml=report-codebase-search.xml
   environment:
@@ -234,7 +234,7 @@ test-codebase-search:
 test-document-workflow:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/document-workflow"
+    PHOENIX_PROJECT_NAME: "document-workflow"
   script:
     - python -m pytest tests/coder/test_document_workflow.py -v --tb=short --with-judge --junitxml=report-document-workflow.xml
   environment:
@@ -249,7 +249,7 @@ test-document-workflow:
 test-rule-lifecycle:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/rule-lifecycle"
+    PHOENIX_PROJECT_NAME: "rule-lifecycle"
   script:
     - python -m pytest tests/coder/test_rule_lifecycle.py -v --tb=short --with-judge --junitxml=report-rule-lifecycle.xml
   environment:
@@ -264,7 +264,7 @@ test-rule-lifecycle:
 test-workspace-indexing:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/workspace-indexing"
+    PHOENIX_PROJECT_NAME: "workspace-indexing"
   script:
     - python -m pytest tests/coder/test_workspace_indexing.py -v --tb=short --with-judge --junitxml=report-workspace-indexing.xml
   environment:
@@ -283,7 +283,7 @@ test-workspace-indexing:
 test-cross-session-recall:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/cross-session-recall"
+    PHOENIX_PROJECT_NAME: "cross-session-recall"
   script:
     - python -m pytest tests/integration/test_cross_session_recall.py -v --tb=short --with-judge --junitxml=report-cross-session.xml
   environment:
@@ -298,7 +298,7 @@ test-cross-session-recall:
 test-eva-code-trace:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/eva-code-trace"
+    PHOENIX_PROJECT_NAME: "eva-code-trace"
   script:
     - python -m pytest tests/integration/test_eva_code_trace.py -v --tb=short --with-judge --junitxml=report-eva-trace.xml
   environment:
@@ -313,7 +313,7 @@ test-eva-code-trace:
 test-infra-inspection:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/infra-inspection"
+    PHOENIX_PROJECT_NAME: "infra-inspection"
   script:
     - python -m pytest tests/integration/test_infra_inspection_flow.py -v --tb=short --with-judge --junitxml=report-infra-inspection.xml
   environment:
@@ -328,7 +328,7 @@ test-infra-inspection:
 test-knowledge-pipeline:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/knowledge-pipeline"
+    PHOENIX_PROJECT_NAME: "knowledge-pipeline"
   script:
     - python -m pytest tests/integration/test_knowledge_pipeline.py -v --tb=short --with-judge --junitxml=report-knowledge-pipeline.xml
   environment:
@@ -343,7 +343,7 @@ test-knowledge-pipeline:
 test-routing-edge-cases:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/routing-edge-cases"
+    PHOENIX_PROJECT_NAME: "routing-edge-cases"
   script:
     - python -m pytest tests/integration/test_routing_edge_cases.py -v --tb=short --with-judge --junitxml=report-routing-edge.xml
   environment:
@@ -358,7 +358,7 @@ test-routing-edge-cases:
 test-security-edge-cases:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/security-edge-cases"
+    PHOENIX_PROJECT_NAME: "security-edge-cases"
   script:
     - python -m pytest tests/integration/test_security_edge_cases.py -v --tb=short --with-judge --junitxml=report-security-edge.xml
   environment:
@@ -373,7 +373,7 @@ test-security-edge-cases:
 test-tool-isolation:
   extends: .test-base
   variables:
-    PHOENIX_PROJECT_NAME: "test/tool-isolation"
+    PHOENIX_PROJECT_NAME: "tool-isolation"
   script:
     - python -m pytest tests/integration/test_tool_isolation.py -v --tb=short --with-judge --junitxml=report-tool-isolation.xml
   environment:
