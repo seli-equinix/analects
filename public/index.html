@@ -55,6 +55,23 @@
   .test-traces { font-size: 12px; }
   .test-actions { display: flex; gap: 4px; }
 
+  /* Failed test row — clickable with red accent */
+  .test-row.failed { cursor: pointer; border-left: 3px solid var(--red); padding-left: 21px; }
+  .test-row.failed:hover { background: rgba(248,81,73,0.04); }
+  .test-row.failed .test-num { position: relative; }
+  .test-row.failed .test-num::before { content: '\25B6'; font-size: 8px; position: absolute; left: -14px; top: 50%; transform: translateY(-50%); color: var(--red); transition: transform 0.2s; }
+  .test-row.failed.expanded .test-num::before { transform: translateY(-50%) rotate(90deg); }
+
+  /* Collapsible failure panel */
+  .failure-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.2s ease; background: rgba(248,81,73,0.03); border-bottom: 1px solid var(--border); padding: 0 24px 0 88px; font-size: 12px; line-height: 1.6; }
+  .failure-panel.open { max-height: 500px; padding: 10px 24px 12px 88px; }
+  .failure-summary { color: var(--red); font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+  .failure-detail { color: var(--text); margin-left: 8px; }
+  .failure-detail .fail-label { color: var(--red); font-weight: 600; }
+  .failure-detail .pass-label { color: var(--green); font-weight: 500; }
+  .failure-explanation { color: var(--text-dim); font-style: italic; margin-left: 20px; max-width: 700px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .failure-pytest { color: var(--text-dim); margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border); }
+
   /* Log panel */
   .log-panel { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 45vh; background: var(--surface); border-top: 2px solid var(--blue); z-index: 100; flex-direction: column; }
   .log-panel.open { display: flex; }
@@ -146,9 +163,102 @@ const TESTS = [
 
 let testStatus = {};
 let phoenixData = {};
+let failureCache = {};
 let refreshTimer = null;
 let countdownSec = 30;
 let logPollTimer = null;
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function parseFailureInfo(logText) {
+  const info = { type: 'unknown', summary: '', details: [], pytestSummary: '' };
+
+  // Always extract pytest summary
+  const sm = logText.match(/=+ (.+(?:passed|failed|error).+?) =+\s*$/m);
+  if (sm) info.pytestSummary = sm[1].trim();
+
+  // 1. Judge failures
+  const judgeIdx = logText.indexOf('Judge Failures');
+  if (judgeIdx > -1) {
+    info.type = 'judge';
+    // Parse FAIL/PASS lines from Judge Report
+    const reportMatch = logText.match(/LLM Judge Report[\s\S]*?(?=------|={10,})/);
+    if (reportMatch) {
+      for (const m of reportMatch[0].matchAll(/^\s*(FAIL|PASS)\s+\[turn (\d+)\]\s+(\S+)\s+=\s+(\S+)/gm)) {
+        info.details.push({ passed: m[1]==='PASS', turn: +m[2], evaluator: m[3], label: m[4] });
+      }
+    }
+    // Parse explanations from Judge Failures section
+    const failSection = logText.substring(judgeIdx);
+    for (const m of failSection.matchAll(/^\s+\S+\s+\[turn (\d+)\]\s+::\s+(\S+):\s+(\S+)\n\s+(.+)/gm)) {
+      const d = info.details.find(x => x.evaluator===m[2] && x.turn===+m[1] && !x.passed);
+      if (d) d.explanation = m[4].trim().substring(0, 200);
+    }
+    const fails = info.details.filter(d => !d.passed);
+    info.summary = fails.length === 1
+      ? `${fails[0].evaluator} = ${fails[0].label} (turn ${fails[0].turn})`
+      : `${fails.length} evaluator failures`;
+    return info;
+  }
+
+  // 2. Pytest assertion failures
+  const pytestFails = [...logText.matchAll(/FAILED\s+\S+::(\S+)\s+-\s+(.*?)$/gm)];
+  if (pytestFails.length > 0) {
+    info.type = 'pytest';
+    for (const m of pytestFails) info.details.push({ test: m[1], message: m[2].trim() });
+    info.summary = pytestFails.length === 1
+      ? pytestFails[0][2].trim().substring(0, 120)
+      : `${pytestFails.length} assertions failed`;
+    return info;
+  }
+
+  // 3. Infrastructure failures
+  const infraPats = [
+    /CCA AAAM server not healthy[^\n]*/,
+    /SKIP.*not healthy[^\n]*/,
+    /No route to host/,
+    /Connection refused/,
+    /Cannot connect to the Docker daemon/,
+    /curl:\s*\(\d+\)\s+[^\n]*/,
+  ];
+  for (const p of infraPats) {
+    const m = logText.match(p);
+    if (m) { info.type = 'infra'; info.summary = m[0].substring(0, 100); return info; }
+  }
+
+  info.summary = info.pytestSummary || 'Unknown failure (check log)';
+  return info;
+}
+
+async function fetchFailureInfo(testName, jobId) {
+  if (failureCache[testName] && failureCache[testName].job_id === jobId) return failureCache[testName].info;
+  try {
+    const r = await fetch(`${GITLAB_API}/projects/${PROJECT_ID}/jobs/${jobId}/trace`, {
+      headers: {'PRIVATE-TOKEN': TOKEN}
+    });
+    const text = await r.text();
+    const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+                      .replace(/section_(start|end):\d+:[^\n]*/g, '')
+                      .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z \d{2}O /g, '');
+    const info = parseFailureInfo(clean);
+    failureCache[testName] = { job_id: jobId, info };
+    return info;
+  } catch(e) {
+    return { type: 'unknown', summary: 'Failed to fetch log', details: [], pytestSummary: '' };
+  }
+}
+
+function toggleFailure(name, ev) {
+  if (ev) ev.stopPropagation();
+  const row = document.querySelector(`.test-row[data-test="${name}"]`);
+  const panel = document.getElementById(`fail-${name}`);
+  if (row && panel) {
+    row.classList.toggle('expanded');
+    panel.classList.toggle('open');
+  }
+}
 
 // ── API helpers ──
 
@@ -252,7 +362,11 @@ function renderTests() {
       ? `<a href="${PHOENIX_UI}/projects/test%2F${t.name}" target="_blank">${traces}</a>`
       : '<span style="color:var(--text-dim)">0</span>';
 
-    html += `<div class="test-row">
+    const isFailed = s && s.status === 'failed';
+    const failCls = isFailed ? ' failed' : '';
+    const failClick = isFailed ? ` onclick="toggleFailure('${t.name}', event)"` : '';
+
+    html += `<div class="test-row${failCls}" data-test="${t.name}"${failClick}>
       <div class="test-num">${i+1}</div>
       <div>
         <div class="test-name">${t.name}</div>
@@ -263,10 +377,34 @@ function renderTests() {
       <div class="test-dur">${s ? fmtDuration(s.duration) : '-'}</div>
       <div class="test-traces">${phoenixLink}</div>
       <div class="test-actions">
-        <button class="btn btn-sm btn-primary" onclick="runTest('${t.name}')">Run</button>
-        ${s ? `<button class="btn btn-sm" onclick="showLog(${s.job_id},'${t.name}')">Log</button>` : ''}
+        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();runTest('${t.name}')">Run</button>
+        ${s ? `<button class="btn btn-sm" onclick="event.stopPropagation();showLog(${s.job_id},'${t.name}')">Log</button>` : ''}
       </div>
     </div>`;
+
+    // Collapsible failure panel
+    if (isFailed) {
+      const fc = failureCache[t.name];
+      let panelContent = '<span style="color:var(--text-dim)">Loading failure details...</span>';
+      if (fc) {
+        const fi = fc.info;
+        const typeLabel = fi.type === 'judge' ? 'Judge' : fi.type === 'pytest' ? 'Assertion' : fi.type === 'infra' ? 'Infrastructure' : 'Error';
+        let pc = `<div class="failure-summary">${typeLabel}: ${escapeHtml(fi.summary)}</div>`;
+        if (fi.type === 'judge' && fi.details.length) {
+          for (const d of fi.details) {
+            const cls = d.passed ? 'pass-label' : 'fail-label';
+            pc += `<div class="failure-detail"><span class="${cls}">${d.passed?'PASS':'FAIL'}</span> [turn ${d.turn}] ${d.evaluator} = ${d.label}</div>`;
+            if (!d.passed && d.explanation) pc += `<div class="failure-explanation">${escapeHtml(d.explanation)}</div>`;
+          }
+        }
+        if (fi.type === 'pytest' && fi.details.length) {
+          for (const d of fi.details) pc += `<div class="failure-detail">${escapeHtml(d.message.substring(0, 200))}</div>`;
+        }
+        if (fi.pytestSummary) pc += `<div class="failure-pytest">pytest: ${escapeHtml(fi.pytestSummary)}</div>`;
+        panelContent = pc;
+      }
+      html += `<div class="failure-panel" id="fail-${t.name}">${panelContent}</div>`;
+    }
   });
 
   document.getElementById('test-list').innerHTML = html;
@@ -370,6 +508,17 @@ async function refreshAll() {
   testStatus = status;
   phoenixData = phoenix;
   renderTests();
+
+  // Progressive: fetch failure details for failed tests, then re-render
+  let fetched = false;
+  for (const t of TESTS) {
+    const s = testStatus[t.name];
+    if (s && s.status === 'failed') {
+      await fetchFailureInfo(t.name, s.job_id);
+      fetched = true;
+    }
+  }
+  if (fetched) renderTests();
   countdownSec = 30;
 }
 
