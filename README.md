@@ -2,7 +2,9 @@
 
 An AI coding agent that runs as an **Agent-as-a-Model** HTTP server. Send it OpenAI-compatible `/v1/chat/completions` requests, and it runs a full agent loop internally — reading files, executing commands, editing code, searching the web, and managing long-term memory — then returns the result as a standard chat completion.
 
-Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398), extended with expert routing, user awareness, code intelligence, and optimized for local inference on NVIDIA DGX Spark (or any vLLM-compatible setup).
+Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398), extended with expert routing, user awareness, code intelligence, and optimized for local inference on NVIDIA DGX Spark.
+
+> **Reference deployment**: This project runs on two [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) units (Grace Blackwell GB10 SoC, 128GB unified memory each). The architecture is designed around having a large inference model on one Spark and supporting services on the other. It can be adapted to any vLLM-compatible setup — see [Adapting to Your Hardware](#adapting-to-your-hardware).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -12,21 +14,26 @@ Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398),
                            │ POST /v1/chat/completions
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  CCA Server (:8500)                                                 │
+│  CCA Server (:8500)                              [Spark1]           │
 │                                                                     │
 │  ┌─────────────┐    ┌──────────────────────────────────────────┐   │
 │  │ Expert       │───>│ Agent Loop (DualModelOrchestrator)       │   │
 │  │ Router       │    │                                          │   │
-│  │ (classify    │    │  Plan → Execute → Observe → Repeat       │   │
-│  │  request)    │    │                                          │   │
-│  └─────────────┘    │  Tools: bash, file edit, web search,     │   │
-│                      │  code review, test gen, memory, ...      │   │
-│                      └──────────────────────────────────────────┘   │
+│  │ Functionary  │    │  Plan → Execute → Observe → Repeat       │   │
+│  │ 8B (llama    │    │                                          │   │
+│  │ .cpp :8001)  │    │  Tools: bash, file edit, web search,     │   │
+│  └─────────────┘    │  code review, test gen, memory, ...      │   │
+│                      └──────────────┬───────────────────────────┘   │
 │                                     │                               │
-│                                     ▼                               │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ Backends: vLLM (local), Redis, Qdrant, Embedding, SearXNG   │  │
-│  └──────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────▼──────────────────────────┐   │
+│  │ Redis :6379 │ Qdrant :6333 │ Embedding :8200 │ SearXNG :8888│  │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────┬───────────────────────────────┘
+                                      │ LLM inference
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  vLLM Server (:8000)                             [Spark2]           │
+│  Qwen3.5-35B-A3B-FP8 (coder, planner, search, reviewer, tester)   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -55,6 +62,90 @@ This means **any tool that can talk to the OpenAI API can use CCA** — Continue
 - **TOML config** — switch between local vLLM and cloud providers (Azure, Bedrock, Google) with a config change
 - **Docker-first** — single `docker compose up` to run the whole stack
 
+---
+
+## Infrastructure Requirements
+
+CCA is not just one container — it's a stack of services that work together. Here's everything you need.
+
+### Required Models
+
+| Model | Purpose | Size | Where It Runs |
+|-------|---------|------|---------------|
+| **Qwen3.5-35B-A3B-FP8** | Coder, planner, reviewer, tester, search | ~20GB | vLLM on Spark2 (:8000) |
+| **Qwen3-8B-FP8** (or Qwen3.5-9B) | Note-taker, tool orchestrator | ~9GB | vLLM on Spark1 (:8400) |
+| **Qwen3-Embedding-8B** | Semantic search embeddings (4096 dims) | ~8GB | Embedding server on Spark1 (:8200) |
+| **functionary-small-v3.2.Q4_0.gguf** | Expert router (request classification) | ~4GB | llama.cpp on Spark1 (:8001) |
+
+> **Note**: Any OpenAI-compatible models work. The Qwen models listed above are what the reference deployment uses. You can substitute with any model that supports tool calling.
+
+### Required Services
+
+These must be running before CCA starts:
+
+| Service | Port | Container/Image | Purpose |
+|---------|------|-----------------|---------|
+| **vLLM (coder)** | 8000 | vLLM with your large model | Primary LLM for all agent work |
+| **vLLM (note-taker)** | 8400 | vLLM with a small model | Background note extraction + tool orchestration |
+| **Functionary Router** | 8001 | llama.cpp `server` | Request classification before agent loop |
+| **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
+| **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
+| **Embedding Server** | 8200 | vLLM or TEI with embedding model | Generates 4096-dim vectors for semantic search |
+
+### Optional Services
+
+CCA degrades gracefully without these:
+
+| Service | Port | Purpose | What Happens Without It |
+|---------|------|---------|------------------------|
+| **SearXNG** | 8888 | Web search | `web_search` tool unavailable |
+| **Memgraph** | 7687 | Code knowledge graph | Falls back to basic code search |
+| **Phoenix** | 4317 | OpenTelemetry trace collection | No tracing (set `phoenix_endpoint = ""`) |
+
+### Reference Deployment: Two DGX Sparks
+
+The reference deployment runs across two NVIDIA DGX Spark units:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Spark1 (128GB unified memory)                                  │
+│                                                                 │
+│  CCA Server ──────────────── :8500  (agent HTTP endpoint)       │
+│  Functionary Router ──────── :8001  (llama.cpp, ~4GB)           │
+│  vLLM Note-Taker ────────── :8400  (Qwen3-8B, ~9GB)            │
+│  Embedding Server ────────── :8200  (Qwen3-Embedding-8B, ~8GB) │
+│  Redis ───────────────────── :6379  (sessions, facts)           │
+│  Qdrant ──────────────────── :6333  (vector DB)                 │
+│  SearXNG ─────────────────── :8888  (web search)                │
+│  Memgraph ────────────────── :7687  (knowledge graph)           │
+│                                                                 │
+│  GPU memory: ~21GB models + ~25GB KV caches                     │
+│  Remaining: ~82GB available for OS/containers                   │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Spark2 (128GB unified memory)                                  │
+│                                                                 │
+│  vLLM (coder) ────────────── :8000  (Qwen3.5-35B-A3B-FP8)     │
+│                                                                 │
+│  GPU memory: ~20GB model + ~90GB KV cache                       │
+│  Dedicated to inference — nothing else runs here                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Adapting to Your Hardware
+
+CCA doesn't require DGX Spark hardware. Any setup that can serve OpenAI-compatible endpoints works:
+
+- **Single powerful GPU** (80GB+ VRAM): Run all models on one machine, adjust ports in `config.toml`
+- **Cloud inference**: Set `[active] coder = "cloud"` and configure Azure/Bedrock/Google providers
+- **Mixed**: Local small model for note-taker, cloud API for coder
+- **CPU-only router**: Functionary runs fine on CPU via llama.cpp (slower but works)
+
+The only hard requirements are Redis and Qdrant — everything else is configurable via `config.toml`.
+
+---
+
 ## Quick Start
 
 ### 1. Clone and configure
@@ -74,29 +165,52 @@ cp .env.example .env
 
 ### 2. Configure your LLM backend
 
-CCA needs an OpenAI-compatible LLM endpoint. Edit `config.toml`:
+Edit `config.toml` to point at your inference servers:
 
 ```toml
+# Top-level: route Qwen model names to OpenAI-compatible manager
+openai_model_prefixes = ["qwen", "/models/"]
+
 [active]
-coder = "local"        # Use local vLLM
-note_taker = "local"   # Use local small model
+coder = "local"             # Use local vLLM for code generation
+note_taker = "local"        # Use local small model for note-taking
+planner = "local"
+reviewer = "local"
+tester = "local"
+search = "local"
 
 [providers.local.coder]
-model = "/models/Qwen3-32B"          # Your model name
+model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://your-vllm-host:8000/v1"
 api_key_env = "OPENAI_API_KEY"
 temperature = 0.3
 
 [providers.local.note_taker]
-model = "/models/Qwen3-8B"
+model = "/models/Qwen3-8B-FP8"
 provider = "openai"
 base_url = "http://your-notetaker-host:8400/v1"
 api_key_env = "OPENAI_API_KEY"
 temperature = 0.3
 ```
 
-Or use cloud providers:
+Configure backend services:
+
+```toml
+[services]
+redis_url = "redis://:yourpassword@your-redis-host:6379/0"
+qdrant_url = "http://your-qdrant-host:6333"
+embedding_url = "http://your-embedding-host:8200"
+searxng_url = "http://your-searxng-host:8888"        # optional
+memgraph_host = "your-memgraph-host"                  # optional
+memgraph_port = 7687
+
+[router]
+enabled = true
+url = "http://your-functionary-host:8001"
+```
+
+Or use cloud providers instead of local vLLM:
 
 ```toml
 [active]
@@ -112,13 +226,47 @@ model = "claude-sonnet-4-5"
 provider = "bedrock"
 ```
 
-### 3. Run with Docker
+### 3. Start backend services
+
+Before starting CCA, ensure all required services are running. Example with Docker:
+
+```bash
+# Redis
+docker run -d --name redis -p 6379:6379 redis:7-alpine \
+  --requirepass yourpassword
+
+# Qdrant
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
+  -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.14
+
+# Embedding server (using vLLM)
+# Requires a model that outputs embeddings, e.g. Qwen3-Embedding-8B
+python -m vllm.entrypoints.openai.api_server \
+  --model /path/to/Qwen3-Embedding-8B \
+  --port 8200 --task embedding
+
+# Functionary router (using llama.cpp)
+./llama-server -m functionary-small-v3.2.Q4_0.gguf \
+  --port 8001 --n-gpu-layers 99
+
+# Main LLM (using vLLM)
+python -m vllm.entrypoints.openai.api_server \
+  --model /path/to/Qwen3.5-35B-A3B-FP8 \
+  --port 8000 --dtype bfloat16 --quantization fp8
+
+# Note-taker LLM (using vLLM)
+python -m vllm.entrypoints.openai.api_server \
+  --model /path/to/Qwen3-8B-FP8 \
+  --port 8400 --dtype bfloat16 --quantization fp8
+```
+
+### 4. Start CCA
 
 ```bash
 docker compose -f cca-compose.yml up -d cca
 ```
 
-### 4. Test it
+### 5. Test it
 
 ```bash
 # Health check
@@ -137,6 +285,8 @@ curl -X POST http://localhost:8500/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"cca","messages":[{"role":"user","content":"Hello, what can you help me with?"}],"stream":true}'
 ```
+
+---
 
 ## Architecture
 
@@ -157,32 +307,38 @@ The router classifies each request and loads the appropriate tool set:
 
 CCA uses two models working together:
 
-- **Coder** (large model) — handles the actual agent work: planning, tool calling, code generation
-- **Note-taker** (small model) — observes every session in the background, extracts insights, and stores them in Qdrant for future context enrichment
+- **Coder** (large model, e.g. 35B) — handles the actual agent work: planning, tool calling, code generation
+- **Note-taker** (small model, e.g. 8B) — observes every session in the background, extracts insights, and stores them in Qdrant for future context enrichment
 
-This means CCA learns from past sessions and gets better at helping you over time.
+This means CCA learns from past sessions and gets better at helping you over time, without paying large-model costs for memory extraction.
 
-### Backend Services
+### How a Request Flows
 
-| Service | Purpose | Required |
-|---------|---------|----------|
-| **vLLM** | LLM inference (coder + note-taker) | Yes |
-| **Redis** | Session state, critical facts, trajectories | Yes |
-| **Qdrant** | User profiles, code search, long-term notes | Yes |
-| **Embedding server** | Semantic search (Qwen3-Embedding) | Yes |
-| **SearXNG** | Web search | Optional |
-| **Memgraph** | Code knowledge graph | Optional |
-| **Phoenix** | Trace visualization | Optional |
+```
+1. Client sends POST /v1/chat/completions
+2. Expert Router (Functionary 8B) classifies: "coder", "infrastructure", "search", etc.
+3. If "direct" or "clarify" → return immediately (no agent loop)
+4. Otherwise → build tool set for that expert type
+5. Inject user context from past sessions (Qdrant lookup)
+6. Enter agent loop:
+   a. Planner generates a plan
+   b. Coder executes tools (bash, file edit, search, ...)
+   c. Observe results, iterate until done
+7. Return response (streaming SSE or single JSON)
+8. Background: Note-taker extracts insights → Qdrant
+```
+
+---
 
 ## Configuration
 
-All configuration lives in three files:
+All configuration lives in three files (none tracked by git — copy from `*.example`):
 
-| File | Purpose | Tracked by Git |
-|------|---------|----------------|
-| `config.toml` | Models, providers, service URLs, router settings | No (use `config.toml.example`) |
-| `infrastructure.toml` | Cluster topology for infra expert (optional) | No (use `infrastructure.toml.example`) |
-| `.env` | Secrets: Redis password, API keys, GitLab tokens | No (use `.env.example`) |
+| File | Purpose |
+|------|---------|
+| `config.toml` | Models, providers, service URLs, router settings |
+| `infrastructure.toml` | Cluster topology for infra expert (SSH hosts, services) |
+| `.env` | Secrets: Redis password, API keys, GitLab tokens |
 
 ### Switching Providers
 
@@ -204,6 +360,8 @@ REDIS_URL=redis://:password@host:6379/0
 CCA_WORKSPACE=/path/to/your/code
 ```
 
+---
+
 ## API Reference
 
 | Method | Path | Description |
@@ -215,6 +373,8 @@ CCA_WORKSPACE=/path/to/your/code
 | `GET` | `/users` | List known user profiles |
 | `GET` | `/sessions` | List active agent sessions |
 | `GET` | `/stats` | Diagnostic statistics |
+
+---
 
 ## Development
 
@@ -242,21 +402,27 @@ python -m confucius --port 8500
 confucius/
 ├── __main__.py              # Entry point (confucius --port 8500)
 ├── core/                    # Config, LLM managers, tracing, memory
+│   └── config.py            # TOML config loader (pydantic-validated)
 ├── orchestrator/            # Agent loop, extension pipeline
 │   └── extensions/          # Tools: file edit, bash, planning, memory, ...
-├── analects/                # Expert configurations (code, infrastructure, ...)
+├── analects/                # Expert configurations
+│   ├── code/                # Coder: system prompt, allowed commands
+│   └── infrastructure/      # Infra: SSH access, cluster topology
 ├── server/                  # HTTP server (FastAPI)
 │   ├── app.py               # Routes, session handling, expert routing
-│   ├── expert_router.py     # Request classifier
+│   ├── expert_router.py     # Functionary-based request classifier
 │   ├── tool_groups.py       # Route → tool set mapping
-│   ├── code_intelligence/   # Workspace indexing, code search
+│   ├── note_observer.py     # Background note extraction (per-request)
+│   ├── code_intelligence/   # Workspace indexing, code search, knowledge graph
 │   └── user/                # User identification, profiles, memory
 └── lib/                     # Runtime bootstrap
 ```
 
+---
+
 ## Origin
 
-CCA is a fork of [Meta + Harvard's Confucius framework](https://github.com/facebookresearch/cca-swebench) ([paper](https://arxiv.org/abs/2512.10398)), originally designed as a SWE-bench agent harness. This fork extends it into a standalone Agent-as-a-Model server with expert routing, user awareness, code intelligence, and local inference optimization.
+CCA is a fork of [Meta + Harvard's Confucius framework](https://github.com/facebookresearch/cca-swebench) ([paper](https://arxiv.org/abs/2512.10398)), originally designed as a SWE-bench agent harness. This fork extends it into a standalone Agent-as-a-Model server with expert routing, user awareness, code intelligence, and local inference optimization for NVIDIA DGX Spark hardware.
 
 ## License
 
