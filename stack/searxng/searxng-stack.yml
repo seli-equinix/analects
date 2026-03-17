@@ -1,0 +1,46 @@
+# SearXNG - Self-hosted metasearch engine
+# Provides unlimited free searches for AI web search capability
+# Uses docker compose (NOT swarm)
+#
+# REQUIRED env var: SEARXNG_SECRET_KEY (set in .env)
+
+networks:
+  searxng-net:
+    driver: bridge
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    environment:
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8888}
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY}
+    volumes:
+      - ${SEARXNG_SETTINGS:-./searxng-settings.yml}:/etc/searxng/settings.yml:ro
+    ports:
+      - "${SEARXNG_PORT:-8888}:8080"
+    networks:
+      - searxng-net
+    depends_on:
+      - valkey
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Valkey - Redis-compatible cache
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: searxng-valkey
+    restart: unless-stopped
+    command: valkey-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    networks:
+      - searxng-net
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

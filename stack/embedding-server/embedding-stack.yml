@@ -1,0 +1,84 @@
+# Qwen3 Embedding Server
+# Uses vLLM with Qwen3-Embedding-8B model for high-quality vector embeddings
+#
+# Deployment:
+#   Start:   docker compose -f embedding-stack.yml up -d
+#   Stop:    docker compose -f embedding-stack.yml down
+#   Logs:    docker logs -f qwen3-embedding
+#   Test:    curl http://localhost:8200/v1/embeddings -H "Content-Type: application/json" -d '{"input": "test", "model": "Qwen/Qwen3-Embedding-8B"}'
+#
+# API Endpoints:
+#   - POST /v1/embeddings - OpenAI-compatible embeddings endpoint
+#   - POST /v1/rerank - Reranking endpoint
+#   - GET /health - Health check
+#
+# Model Details:
+#   - Model: /models/Qwen3-Embedding-8B (local, pre-downloaded)
+#   - Architecture: Qwen3ForCausalLM (fine-tuned for embeddings, wrapped by vLLM as pooling model)
+#   - Embedding dimensions: 4096
+#   - Max context: 8192 tokens (model supports 32K, capped for memory efficiency)
+
+services:
+  qwen3-embedding:
+    image: ${EMBEDDING_IMAGE:-hellohal2064/cca-embedding-server:latest}
+    container_name: qwen3-embedding
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/Qwen3-Embedding-8B
+      - --runner
+      - pooling
+      - --port
+      - "8000"
+      - --host
+      - "0.0.0.0"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.15"
+      - --attention-config.backend=TRITON_ATTN
+      - --served-model-name
+      - Qwen/Qwen3-Embedding-8B
+      - --load-format
+      - fastsafetensors
+    environment:
+      # Disable GDS (not supported on DGX Spark unified memory)
+      - VLLM_FASTSAFETENSORS_NOGDS=1
+      # CPU parallelization
+      - OMP_NUM_THREADS=20
+      - TOKENIZERS_PARALLELISM=true
+    ipc: host
+    cap_add:
+      - SYS_NICE
+    security_opt:
+      - seccomp:unconfined
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ${MODELS_DIR:-/data/models}:/models
+      # Cache compiled graphs for faster restarts
+      - embedding-vllm-cache:/root/.cache/vllm
+      - embedding-flashinfer-cache:/root/.cache/flashinfer
+    ports:
+      - "${EMBEDDING_PORT:-8200}:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+volumes:
+  embedding-vllm-cache:
+    driver: local
+  embedding-flashinfer-cache:
+    driver: local

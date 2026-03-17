@@ -1,0 +1,118 @@
+# SearXNG settings for CCA — AI-powered search
+# Optimized for programmatic API access
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "AI Search (DGX)"
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  # Safe search: 0=None, 1=Moderate, 2=Strict
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  
+  # Formats available for API
+  formats:
+    - html
+    - json
+
+server:
+  # Binding
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "CHANGE_ME"  # Overridden by SEARXNG_SECRET_KEY env var
+  
+  # Image proxy for privacy
+  image_proxy: false
+  
+  # HTTP settings
+  http_protocol_version: "1.1"
+  
+  # Limiter settings (disable for internal use)
+  limiter: false
+  
+  # Trust local network
+  proxies:
+    - http://10.0.0.0/8
+    - http://192.168.0.0/16
+
+# Valkey (Redis fork) for caching - internal service
+valkey:
+  url: valkey://valkey:6379/0
+
+ui:
+  # Disable UI features not needed for API
+  static_use_hash: true
+  default_theme: simple
+  results_on_new_tab: false
+  
+  # Query settings
+  query_in_title: false
+
+# Outgoing requests
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+
+# Enabled search engines - prioritize reliable ones
+engines:
+  # Web search
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+    
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+    
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+    
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+    
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: true
+
+  # Wikipedia for factual info
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+    
+  # GitHub for code
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  # Disable less reliable or slow engines
+  - name: yahoo
+    disabled: true
+    
+  - name: yandex
+    disabled: true
+
+  # Disable engines that require Tor
+  - name: ahmia
+    disabled: true
+    
+  - name: torch
+    disabled: true

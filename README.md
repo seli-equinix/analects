@@ -226,47 +226,30 @@ model = "claude-sonnet-4-5"
 provider = "bedrock"
 ```
 
-### 3. Start backend services
-
-Before starting CCA, ensure all required services are running. Example with Docker:
+### 3. Start the full stack
 
 ```bash
-# Redis
-docker run -d --name redis -p 6379:6379 redis:7-alpine \
-  --requirepass yourpassword
+# First time: checks prereqs, creates config files, pulls Docker images
+./setup.sh setup
 
-# Qdrant
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
-  -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.14
+# Edit configs with your values
+nano .env             # Set REDIS_PASSWORD, MODELS_DIR, VLLM_URL
+nano config.toml      # Set main vLLM URL in [providers.local.coder] base_url
 
-# Embedding server (using vLLM)
-# Requires a model that outputs embeddings, e.g. Qwen3-Embedding-8B
-python -m vllm.entrypoints.openai.api_server \
-  --model /path/to/Qwen3-Embedding-8B \
-  --port 8200 --task embedding
+# Start all 11 containers
+docker compose up -d
 
-# Functionary router (using llama.cpp)
-./llama-server -m functionary-small-v3.2.Q4_0.gguf \
-  --port 8001 --n-gpu-layers 99
-
-# Main LLM (using vLLM)
-python -m vllm.entrypoints.openai.api_server \
-  --model /path/to/Qwen3.5-35B-A3B-FP8 \
-  --port 8000 --dtype bfloat16 --quantization fp8
-
-# Note-taker LLM (using vLLM)
-python -m vllm.entrypoints.openai.api_server \
-  --model /path/to/Qwen3-8B-FP8 \
-  --port 8400 --dtype bfloat16 --quantization fp8
+# Check service health
+./setup.sh status
 ```
 
-### 4. Start CCA
+This starts Redis, Qdrant, Memgraph, SearXNG, Embedding server, Note-taker, Functionary router, CCA, and workspace-sync — all configured via `.env` and `config.toml`.
 
-```bash
-docker compose -f cca-compose.yml up -d cca
-```
+> **Note**: The main vLLM inference server (Qwen3.5-35B-A3B-FP8 on port 8000) runs on a separate machine. Set `VLLM_URL` in `.env` to point to it.
 
-### 5. Test it
+### 4. Test it
+
+> If you need to manage the stack: `./setup.sh stop`, `./setup.sh logs [service]`, `./setup.sh status`
 
 ```bash
 # Health check

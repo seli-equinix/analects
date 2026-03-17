@@ -1,0 +1,71 @@
+# vLLM Note-Taker — Small model for CCA note-taker + tool orchestrator roles
+# Serves Qwen3.5-9B-FP8 with thinking + tool calling support
+# Port 8400 to avoid conflicts with embedding (8200), main vLLM (8000)
+
+services:
+  vllm-notetaker:
+    image: ${NOTETAKER_IMAGE:-hellohal2064/cca-notetaker:latest}
+    container_name: vllm-notetaker
+    restart: unless-stopped
+    ports:
+      - "${NOTETAKER_PORT:-8400}:${NOTETAKER_PORT:-8400}"
+    volumes:
+      - ${MODELS_DIR:-/data/models}:/models:ro
+    privileged: true
+    shm_size: '4g'
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    environment:
+      # Model configuration
+      - MODEL_PATH=${NOTETAKER_MODEL:-/models/Qwen3.5-9B-FP8}
+      - MAX_MODEL_LEN=${NOTETAKER_MAX_LEN:-32768}
+      - GPU_MEMORY_UTIL=${NOTETAKER_GPU_MEM:-0.5}
+
+      # Server configuration
+      - HOST=0.0.0.0
+      - PORT=${NOTETAKER_PORT:-8400}
+
+      # Attention backend — FlashInfer (native SM121)
+      - ATTENTION_BACKEND=FLASHINFER
+
+      # 9B is dense — no MoE backends
+      - VLLM_USE_FLASHINFER_MOE_FP8=0
+      - VLLM_USE_DEEP_GEMM=0
+      - VLLM_MOE_USE_DEEP_GEMM=0
+
+      # Parser configuration — matches Spark2 main vLLM
+      - TOOL_CALL_PARSER=qwen3_coder
+      - REASONING_PARSER=qwen3
+
+      # CPU parallelization
+      - OMP_NUM_THREADS=10
+      - TOKENIZERS_PARALLELISM=true
+
+      # Boost GPU clock to max (DGX GB10 has no thermal issues)
+      - GPU_CLOCK_MAX=3003
+
+      # Suppress FLA format mismatch warnings
+      - PYTHONWARNINGS=ignore::UserWarning:vllm.model_executor.layers.fla.ops
+    command:
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "8192"
+      - --kv-cache-dtype
+      - fp8_e4m3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${NOTETAKER_PORT:-8400}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

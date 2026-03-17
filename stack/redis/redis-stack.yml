@@ -1,0 +1,53 @@
+# Redis Memory Tier for CCA
+# Deployed on DGX Spark via docker compose
+#
+# Deployment:
+#   docker compose -f redis-stack.yml up -d
+#   docker compose -f redis-stack.yml down
+#   docker logs -f redis-memory
+#
+# REQUIRED env var: REDIS_PASSWORD (set in .env)
+
+networks:
+  redis-net:
+    driver: bridge
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis-memory
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: >
+      sh -c 'redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MAXMEMORY:-10gb}
+      --maxmemory-policy allkeys-lru
+      --requirepass "$$REDIS_PASSWORD"
+      --save 900 1
+      --save 300 10
+      --save 60 10000'
+    volumes:
+      - ${REDIS_DATA:-/data/memory-tier/redis}:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - redis-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          memory: 4G
+        limits:
+          memory: 12G
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli --raw -a $$REDIS_PASSWORD ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,22 @@
+# CCA Full Stack — Self-Contained Deployment
+#
+# Brings up all 11 containers for the Confucius Code Agent stack.
+#
+# Prerequisites:
+#   - Main vLLM inference server running separately (see README.md)
+#   - Model weights downloaded to $MODELS_DIR
+#   - .env, config.toml configured (run ./setup.sh setup)
+#
+# Quick start:
+#   ./setup.sh setup     # first-time config + image pull
+#   docker compose up -d
+
+include:
+  - stack/redis/redis-stack.yml
+  - stack/qdrant/qdrant-stack.yml
+  - stack/memgraph/docker-compose.yml
+  - stack/searxng/searxng-stack.yml
+  - stack/embedding-server/embedding-stack.yml
+  - stack/vllm-notetaker/docker-compose.yml
+  - stack/functionary-router/docker-compose.yml
+  - cca-compose.yml

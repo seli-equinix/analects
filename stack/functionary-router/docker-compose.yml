@@ -1,0 +1,61 @@
+# Functionary v3.2 Tool Router
+# Purpose: Fast request classification for CCA agent workflows
+# API: OpenAI-compatible /v1/chat/completions with tool_calls
+# Port: 8001
+#
+# Usage:
+#   Build:   docker compose build
+#   Start:   docker compose up -d
+#   Stop:    docker compose down
+#   Logs:    docker logs -f functionary-router
+#   Health:  curl http://localhost:8001/health
+#
+# NOTE: Built from source for ARM64+CUDA (GB10 SM120/121).
+# The upstream ghcr.io/ggml-org/llama.cpp:server-cuda is x86-only.
+
+services:
+  functionary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${FUNCTIONARY_IMAGE:-hellohal2064/cca-functionary-router:latest}
+    container_name: functionary-router
+    restart: unless-stopped
+    ports:
+      - "${FUNCTIONARY_PORT:-8001}:8001"
+    volumes:
+      - ${MODELS_DIR:-/data/models}/functionary:/models:ro
+    command:
+      - --model
+      - /models/functionary-small-v3.2.Q4_0.gguf
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8001"
+      - --n-gpu-layers
+      - "99"
+      - --ctx-size
+      - "8192"
+      - --n-predict
+      - "2048"
+      - --threads
+      - "8"
+      - --flash-attn
+      - "on"
+      - --jinja
+      - --chat-template-file
+      - /models/functionary-v3.2.jinja
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

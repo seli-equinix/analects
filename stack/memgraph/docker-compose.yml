@@ -1,0 +1,60 @@
+# Memgraph Knowledge Graph for CCA Code Intelligence
+# Stores function call graphs, file relationships, and dependency analysis
+#
+# Usage:
+#   Start:   docker compose up -d
+#   Stop:    docker compose down
+#   Logs:    docker logs -f memgraph
+#   Lab UI:  http://localhost:3100
+#   Bolt:    bolt://localhost:7687
+#
+# WARNING: Do NOT use --memory-limit flag — causes segfault (exit 139)
+# No authentication — runs with empty credentials (LAN-only deployment)
+
+services:
+  memgraph:
+    image: memgraph/memgraph:latest
+    container_name: memgraph
+    ports:
+      - "${MEMGRAPH_PORT:-7687}:7687"
+    volumes:
+      - ${MEMGRAPH_DATA:-/data/memgraph/data}:/var/lib/memgraph
+      - ${MEMGRAPH_LOG:-/data/memgraph/log}:/var/log/memgraph
+    command:
+      - "--bolt-port=7687"
+      - "--bolt-server-name-for-init=Neo4j/"
+      - "--log-level=WARNING"
+      - "--telemetry-enabled=false"
+    deploy:
+      resources:
+        limits:
+          cpus: "12"
+          memory: 12G
+        reservations:
+          cpus: "4"
+          memory: 4G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --host localhost --port 7687 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  memgraph-lab:
+    image: memgraph/lab:latest
+    container_name: memgraph-lab
+    ports:
+      - "${MEMGRAPH_LAB_PORT:-3100}:3000"
+    environment:
+      - QUICK_CONNECT_MG_HOST=memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+    restart: unless-stopped

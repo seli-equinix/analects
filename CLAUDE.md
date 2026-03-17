@@ -6,18 +6,9 @@
 
 ---
 
-## CRITICAL: Two-Repo Git Workflow
+## Git Workflow
 
-CCA is a standalone repo, also used as a **git submodule** of `docker-swarm-stacks` for deployment.
-
-```
-confucius-code-agent/         <- standalone repo (seli-equinix/confucius-code-agent)
-  confucius/                  <- the agent framework
-
-docker-swarm-stacks/          <- parent repo (seli-equinix/docker-swarm-stacks)
-  nvidia-dgx-spark/
-    cca/                      <- submodule pointing to confucius-code-agent
-```
+CCA is a standalone repo — clone, configure, and run directly.
 
 ### Remotes
 
@@ -30,14 +21,10 @@ docker-swarm-stacks/          <- parent repo (seli-equinix/docker-swarm-stacks)
 ### Development Workflow
 
 ```bash
-# Primary development (from standalone clone)
+# Primary development
 git add <files> && git commit -m "description"
 git push origin main          # → GitHub
 git push gitlab HEAD:main     # → GitLab CI
-
-# Update submodule pointer in docker-swarm-stacks (for deployment)
-cd /path/to/docker-swarm-stacks/nvidia-dgx-spark/cca && git pull origin main
-cd /path/to/docker-swarm-stacks && git add nvidia-dgx-spark/cca && git commit -m "update CCA submodule" && git push
 ```
 
 ### Pulling Upstream Updates
@@ -567,10 +554,9 @@ docker compose -f cca-compose.yml --profile dev up -d cca-dev
 
 ```bash
 # Full redeploy cycle (replace YOUR_HOST with your CCA host IP/hostname)
-cd nvidia-dgx-spark/cca && git add <files> && git commit -m "msg" && git push origin main
-cd /path/to/docker-swarm-stacks && git add nvidia-dgx-spark/cca && git commit -m "update CCA submodule" && git push
-ssh user@YOUR_HOST "cd docker-swarm-stacks && git pull && git submodule update --init nvidia-dgx-spark/cca"
-ssh user@YOUR_HOST "cd docker-swarm-stacks/nvidia-dgx-spark/cca && docker compose -f cca-compose.yml build --no-cache cca && docker compose -f cca-compose.yml down cca && docker compose -f cca-compose.yml up -d cca"
+git add <files> && git commit -m "msg" && git push origin main
+ssh user@YOUR_HOST "cd confucius-code-agent && git pull"
+ssh user@YOUR_HOST "cd confucius-code-agent && docker compose -f cca-compose.yml build --no-cache cca && docker compose -f cca-compose.yml down cca && docker compose -f cca-compose.yml up -d cca"
 curl http://YOUR_HOST:8500/health
 ```
 

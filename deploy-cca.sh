@@ -12,7 +12,7 @@ set -e
 SPARK1="${CCA_DEPLOY_HOST:?Set CCA_DEPLOY_HOST env var (e.g. 192.168.1.100)}"
 SPARK1_USER="${CCA_DEPLOY_USER:-seli}"
 SPARK1_PASS="${CCA_DEPLOY_PASS:?Set CCA_DEPLOY_PASS env var}"
-REMOTE_DIR="docker-swarm-stacks/nvidia-dgx-spark/cca"
+REMOTE_DIR="${CCA_REMOTE_DIR:-confucius-code-agent}"
 
 ssh_cmd() {
     sshpass -p "$SPARK1_PASS" ssh -o StrictHostKeyChecking=no "$SPARK1_USER@$SPARK1" "$@"
@@ -23,12 +23,12 @@ ACTION="${1:-build}"
 case "$ACTION" in
     pull)
         echo "=== Pulling latest code on Spark1 ==="
-        ssh_cmd "cd docker-swarm-stacks && git pull && git submodule update --init --recursive nvidia-dgx-spark/cca"
+        ssh_cmd "cd $REMOTE_DIR && git pull"
         ;;
 
     build)
         echo "=== Building CCA on Spark1 ==="
-        ssh_cmd "cd docker-swarm-stacks && git pull && git submodule update --init --recursive nvidia-dgx-spark/cca"
+        ssh_cmd "cd $REMOTE_DIR && git pull"
         ssh_cmd "cd $REMOTE_DIR && docker compose -f cca-compose.yml build"
         echo ""
         echo "Build complete. Run with: ./deploy-cca.sh run"
