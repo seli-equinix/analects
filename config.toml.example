@@ -198,9 +198,15 @@ temperature = 0.1
 # ──────────────────────────────────────────────
 # CODE INTELLIGENCE — Workspace Indexer
 # ──────────────────────────────────────────────
+# The workspace monitor continuously checks configured projects for data
+# integrity.  It auto-detects empty/missing data (fresh install, data wipe),
+# indexes new/changed files, and removes stale data for deleted files.
+# Only projects listed in `projects` are monitored — no auto-discovery.
 
 [indexer]
 paths = ["/workspace"]
+projects = ["your-project", "your-project-migration"]   # must match directory names under paths
+sync_interval = 300                                      # seconds between sync cycles
 collection = "codebase_files"
 skip_dirs = [".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist"]
 

@@ -175,6 +175,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     # Start background tasks
     cleanup_task = asyncio.create_task(_cleanup_loop())
     health_task = asyncio.create_task(_backend_health_loop())
+    monitor_task = asyncio.create_task(_workspace_monitor_loop())
 
     logger.info(f"CCA HTTP server ready — serving as model: {SERVED_MODEL_NAME}")
     yield
@@ -182,12 +183,17 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     # Shutdown
     cleanup_task.cancel()
     health_task.cancel()
+    monitor_task.cancel()
     try:
         await cleanup_task
     except asyncio.CancelledError:
         pass
     try:
         await health_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await monitor_task
     except asyncio.CancelledError:
         pass
 
@@ -224,6 +230,141 @@ async def _backend_health_loop() -> None:
                     logger.info("Backend health check: %s", status)
             except Exception as e:
                 logger.warning("Backend health check error: %s", e)
+
+
+# ==================== Workspace Monitor ====================
+
+
+async def _workspace_monitor_loop() -> None:
+    """Continuously monitor configured projects for data integrity.
+
+    Handles: empty collections (fresh install / data wipe),
+    file additions, modifications, AND deletions.
+    Only monitors projects listed in [indexer].projects config.
+    """
+    await asyncio.sleep(10)  # Let backends stabilize
+
+    while True:
+        try:
+            if backend_clients and backend_clients.available:
+                await _sync_configured_projects()
+        except Exception as e:
+            logger.warning("Workspace monitor error: %s", e)
+
+        try:
+            from ..core.config import get_indexer_config
+            interval = get_indexer_config().sync_interval
+        except Exception:
+            interval = 300
+        await asyncio.sleep(interval)
+
+
+async def _sync_configured_projects() -> None:
+    """Single sync cycle: check each configured project, index/clean as needed."""
+    from ..core.config import get_indexer_config
+    from .code_intelligence.workspace_indexer import WorkspaceIndexer
+
+    indexer_cfg = get_indexer_config()
+    if not indexer_cfg.projects:
+        return
+
+    qdrant = backend_clients.qdrant
+
+    # Check if collection exists
+    collection_exists = False
+    try:
+        await qdrant.get_collection(indexer_cfg.collection)
+        collection_exists = True
+    except Exception:
+        pass
+
+    # Resolve project directories and classify by indexing need
+    projects_needing_force: List[str] = []   # No data → force reindex
+    projects_needing_sync: List[str] = []    # Has data → incremental sync
+
+    for project_name in indexer_cfg.projects:
+        # Find directory on disk
+        project_dir = None
+        for base_path in indexer_cfg.paths:
+            candidate = os.path.join(base_path, project_name)
+            if os.path.isdir(candidate):
+                project_dir = candidate
+                break
+
+        if not project_dir:
+            continue  # Not on disk yet (workspace-sync hasn't cloned it)
+
+        if not collection_exists:
+            projects_needing_force.append(project_dir)
+            continue
+
+        # Check if this project has ANY indexed data in Qdrant
+        normalized = project_name.replace("-", "_")
+        has_data = await _project_has_data(
+            qdrant, indexer_cfg.collection, normalized
+        )
+
+        if has_data:
+            projects_needing_sync.append(project_dir)
+        else:
+            projects_needing_force.append(project_dir)
+
+    # Force reindex projects with NO data (fresh install, data wipe)
+    if projects_needing_force:
+        logger.info(
+            "Workspace monitor: %d project(s) have no data, force reindexing: %s",
+            len(projects_needing_force), projects_needing_force,
+        )
+        indexer = WorkspaceIndexer(backend_clients)
+        stats = await indexer.index_paths(
+            projects_needing_force,
+            skip_dirs=set(indexer_cfg.skip_dirs),
+            force=True,
+        )
+        logger.info("Workspace monitor: force reindex complete — %s", stats)
+
+    # Incremental sync projects that HAVE data
+    # (detects additions, modifications, AND deletions via hash comparison)
+    if projects_needing_sync:
+        indexer = WorkspaceIndexer(backend_clients)
+        stats = await indexer.index_paths(
+            projects_needing_sync,
+            skip_dirs=set(indexer_cfg.skip_dirs),
+            force=False,
+        )
+        # Only log if something actually changed
+        if stats.get("indexed", 0) > 0 or stats.get("deleted", 0) > 0:
+            logger.info("Workspace monitor: incremental sync — %s", stats)
+
+
+async def _project_has_data(
+    qdrant: Any, collection: str, project: str
+) -> bool:
+    """Check if a project has any indexed points in Qdrant."""
+    try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        points, _ = await qdrant.scroll(
+            collection_name=collection,
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="project",
+                        match=MatchValue(value=project),
+                    ),
+                    FieldCondition(
+                        key="source",
+                        match=MatchValue(value="cca"),
+                    ),
+                ]
+            ),
+            limit=1,
+            with_payload=False,
+            with_vectors=False,
+        )
+        return len(points) > 0
+    except Exception:
+        return False
 
 
 # ==================== FastAPI App ====================
@@ -1394,18 +1535,25 @@ async def reindex_workspace(request: Request) -> Dict[str, Any]:
     """Trigger workspace re-indexing (Qdrant + Memgraph).
 
     Called by the workspace-sync sidecar when source repos are updated,
-    or manually to force a full re-index.
+    or manually to force a full re-index.  Defaults to [indexer] config
+    paths when no explicit paths are provided.
     """
     if backend_clients is None:
         raise HTTPException(status_code=503, detail="BackendClients not available")
 
-    body = await request.json()
-    paths = body.get("paths", ["/workspace"])
-    force = body.get("force", False)
-
+    from ..core.config import get_indexer_config
     from .code_intelligence.workspace_indexer import WorkspaceIndexer
 
+    indexer_cfg = get_indexer_config()
+    body = await request.json()
+    paths = body.get("paths", indexer_cfg.paths)
+    force = body.get("force", False)
+
     indexer = WorkspaceIndexer(backend_clients)
-    stats = await indexer.index_paths(paths, force=force)
+    stats = await indexer.index_paths(
+        paths,
+        skip_dirs=set(indexer_cfg.skip_dirs),
+        force=force,
+    )
     logger.info("Workspace reindex complete: %s", stats)
     return {"status": "ok", "result": stats}

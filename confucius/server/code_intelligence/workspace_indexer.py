@@ -190,6 +190,11 @@ class WorkspaceIndexer:
 
         await asyncio.gather(*[_index_one(f) for f in all_files])
 
+        # Detect and clean up files deleted from disk but still in Qdrant
+        if not force and existing_hashes:
+            deleted = await self._reconcile_deleted(all_files, existing_hashes)
+            stats["deleted"] = deleted
+
         stats["finished_at"] = datetime.now().isoformat()
         logger.info("WorkspaceIndexer: done — %s", stats)
         return stats
@@ -239,6 +244,47 @@ class WorkspaceIndexer:
 
         logger.info("Loaded %d existing content hashes", len(hashes))
         return hashes
+
+    async def _reconcile_deleted(
+        self,
+        current_files: List[str],
+        existing_hashes: Dict[str, str],
+    ) -> int:
+        """Detect files in Qdrant that no longer exist on disk and remove them.
+
+        Compares Qdrant's indexed file paths (from existing_hashes) against
+        the current filesystem walk.  Removes orphaned data from both Qdrant
+        and Memgraph so the LLM never sees stale code.
+        """
+        current_set = set(current_files)
+        deleted_files = set(existing_hashes.keys()) - current_set
+
+        if not deleted_files:
+            return 0
+
+        logger.info(
+            "Reconciling %d deleted file(s) from Qdrant + Memgraph",
+            len(deleted_files),
+        )
+
+        for file_path in deleted_files:
+            # Remove from Qdrant
+            await self._delete_file_docs(file_path)
+
+            # Remove from Memgraph
+            graph = self._get_graph()
+            if graph:
+                try:
+                    await graph.clear_file(file_path)
+                except Exception as e:
+                    logger.warning(
+                        "Graph cleanup failed for deleted file %s: %s",
+                        file_path, e,
+                    )
+
+            logger.debug("Cleaned up deleted file: %s", file_path)
+
+        return len(deleted_files)
 
     async def _index_file(
         self,

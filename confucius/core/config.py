@@ -201,6 +201,28 @@ class ToolRouterConfig(BaseModel):
         extra = "ignore"
 
 
+class IndexerConfig(BaseModel):
+    """Workspace indexer configuration.
+
+    Controls which projects are monitored and synced to Qdrant + Memgraph.
+    Only projects listed in ``projects`` are indexed — no auto-discovery.
+    """
+
+    paths: list[str] = Field(default_factory=lambda: ["/workspace"])
+    projects: list[str] = Field(default_factory=list)
+    collection: str = "codebase_files"
+    sync_interval: int = 300  # seconds between sync cycles
+    skip_dirs: list[str] = Field(
+        default_factory=lambda: [
+            ".git", "node_modules", "__pycache__", ".venv", "venv",
+            "build", "dist",
+        ]
+    )
+
+    class Config:
+        extra = "ignore"
+
+
 class CCAConfig(BaseModel):
     """Top-level CCA configuration."""
 
@@ -212,6 +234,7 @@ class CCAConfig(BaseModel):
     router: RouterConfig = Field(default_factory=RouterConfig)
     tool_router: ToolRouterConfig = Field(default_factory=ToolRouterConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
+    indexer: IndexerConfig = Field(default_factory=IndexerConfig)
 
     class Config:
         extra = "ignore"
@@ -355,3 +378,12 @@ def get_services_config() -> ServicesConfig:
     """
     config = _load_config()
     return config.services
+
+
+def get_indexer_config() -> IndexerConfig:
+    """Get workspace indexer configuration.
+
+    Returns IndexerConfig with defaults if [indexer] section is missing.
+    """
+    config = _load_config()
+    return config.indexer
