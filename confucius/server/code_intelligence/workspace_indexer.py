@@ -55,13 +55,28 @@ from ..backends import EMBEDDING_DIMS
 COLLECTION_NAME = "codebase_files"
 
 
-def _detect_project(file_path: str, index_root: str) -> str:
-    """Detect project name from file path relative to index root."""
-    rel = os.path.relpath(file_path, index_root)
+def _detect_project(
+    file_path: str,
+    index_root: str,
+    workspace_root: Optional[str] = None,
+) -> str:
+    """Detect project name from file path.
+
+    When *workspace_root* is given (e.g. ``/workspace``), the project name
+    is the first directory component after it — regardless of which
+    sub-path was passed as *index_root*.  This handles the case where the
+    monitor passes ``/workspace/EVA`` as the root: without workspace_root
+    the first relative component would be ``code``, not ``EVA``.
+
+    Falls back to the first component relative to *index_root*, then to
+    the basename of *index_root*.
+    """
+    base = workspace_root or index_root
+    rel = os.path.relpath(file_path, base)
     parts = rel.split(os.sep)
     if len(parts) > 1:
         return parts[0].replace("-", "_")
-    return "default"
+    return os.path.basename(index_root).replace("-", "_") or "default"
 
 
 def _sha256(content: str) -> str:
@@ -110,6 +125,7 @@ class WorkspaceIndexer:
         paths: List[str],
         skip_dirs: Optional[set] = None,
         force: bool = False,
+        workspace_root: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Index all files under the given paths.
 
@@ -117,6 +133,11 @@ class WorkspaceIndexer:
             paths: List of directories to walk.
             skip_dirs: Directories to skip (defaults to DEFAULT_SKIP_DIRS).
             force: If True, re-index all files regardless of content hash.
+            workspace_root: Base workspace directory (e.g. ``/workspace``).
+                When set, project names are derived relative to this path
+                instead of the individual *paths* entries.  This ensures
+                ``/workspace/EVA/code/foo.ps1`` gets ``project="EVA"``
+                even when *paths* is ``["/workspace/EVA"]``.
 
         Returns:
             Stats dict: {files_scanned, indexed, skipped, errors, functions}.
@@ -175,7 +196,8 @@ class WorkspaceIndexer:
             async with sem:
                 try:
                     result = await self._index_file(
-                        fpath, paths, existing_hashes, force
+                        fpath, paths, existing_hashes, force,
+                        workspace_root=workspace_root,
                     )
                     if result == "indexed":
                         stats["indexed"] += 1
@@ -292,6 +314,7 @@ class WorkspaceIndexer:
         index_roots: List[str],
         existing_hashes: Dict[str, str],
         force: bool,
+        workspace_root: Optional[str] = None,
     ) -> str:
         """Index a single file. Returns status string."""
         try:
@@ -314,7 +337,7 @@ class WorkspaceIndexer:
         project = "default"
         for root in index_roots:
             if file_path.startswith(root):
-                project = _detect_project(file_path, root)
+                project = _detect_project(file_path, root, workspace_root)
                 break
 
         now = datetime.now().isoformat()

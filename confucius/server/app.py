@@ -309,6 +309,11 @@ async def _sync_configured_projects() -> None:
         else:
             projects_needing_force.append(project_dir)
 
+    # Workspace root for correct project name detection.
+    # When paths=["/workspace"] and project dirs are /workspace/EVA etc.,
+    # the indexer needs the parent path to derive project="EVA" (not "code").
+    ws_root = indexer_cfg.paths[0] if indexer_cfg.paths else None
+
     # Force reindex projects with NO data (fresh install, data wipe)
     if projects_needing_force:
         logger.info(
@@ -320,6 +325,7 @@ async def _sync_configured_projects() -> None:
             projects_needing_force,
             skip_dirs=set(indexer_cfg.skip_dirs),
             force=True,
+            workspace_root=ws_root,
         )
         logger.info("Workspace monitor: force reindex complete — %s", stats)
 
@@ -331,6 +337,7 @@ async def _sync_configured_projects() -> None:
             projects_needing_sync,
             skip_dirs=set(indexer_cfg.skip_dirs),
             force=False,
+            workspace_root=ws_root,
         )
         # Only log if something actually changed
         if stats.get("indexed", 0) > 0 or stats.get("deleted", 0) > 0:
