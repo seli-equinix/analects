@@ -3,7 +3,7 @@
 Build tree-sitter language grammars for Python, Bash, PowerShell, YAML, and Markdown
 
 Uses specific versions compatible with tree-sitter 0.21.3 ABI v14.
-PowerShell requires tree-sitter CLI to generate parser.c from grammar.js.
+All grammars use pre-compiled parser.c from their tagged releases.
 
 Manual compile+link to avoid setuptools/distutils linker bugs
 (missing -shared flag in newer setuptools versions).
@@ -11,7 +11,7 @@ Manual compile+link to avoid setuptools/distutils linker bugs
 Versions:
 - Python: v0.20.4 (pre-compiled)
 - Bash: v0.20.5 (pre-compiled)
-- PowerShell: master branch (requires generation)
+- PowerShell: v0.26.3 (pre-compiled, airbus-cert/tree-sitter-powershell)
 - YAML: v0.5.0 (pre-compiled)
 - Markdown: v0.7.1 (pre-compiled)
 """
@@ -20,13 +20,15 @@ import os
 import subprocess
 
 # Language repositories with versions
-# Python, Bash, YAML, Markdown have pre-compiled parsers
-# PowerShell needs generation via tree-sitter CLI
+# All use pre-compiled parser.c from tagged releases (no generation needed).
 LANGUAGES = {
     "python": ("https://github.com/tree-sitter/tree-sitter-python.git", "v0.20.4", False),
     "bash": ("https://github.com/tree-sitter/tree-sitter-bash.git", "v0.20.5", False),
-    # PowerShell: Using Airbus CERT grammar (comprehensive function support, PS 7.3 spec)
-    "powershell": ("https://github.com/airbus-cert/tree-sitter-powershell.git", "main", True),
+    # PowerShell: Airbus CERT grammar (comprehensive function support, PS 7.3 spec)
+    # v0.26.3 includes pre-compiled parser.c compatible with tree-sitter 0.21.3.
+    # DO NOT set needs_generate=True — tree-sitter-cli 0.20.8 cannot regenerate
+    # the grammar (fails with "missing field `name`").
+    "powershell": ("https://github.com/airbus-cert/tree-sitter-powershell.git", "v0.26.3", False),
     "yaml": ("https://github.com/ikatyang/tree-sitter-yaml.git", "v0.5.0", False),
     "markdown": ("https://github.com/ikatyang/tree-sitter-markdown.git", "v0.7.1", False),
 }
