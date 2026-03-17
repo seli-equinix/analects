@@ -19,7 +19,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: cca:latest
+    image: ${CCA_IMAGE:-hellohal2064/confucius-code-agent:latest}
     container_name: cca
     env_file:
       - .env
@@ -130,7 +130,8 @@ services:
       - ./config.toml:/etc/cca/config.toml:ro
       - ./infrastructure.toml:/etc/cca/infrastructure.toml:ro
 
-  # Workspace sync: clones EVA + EVA-migration from GitLab, periodic pull on source repos
+  # Workspace sync: clones/pulls repos from git server, triggers CCA re-index on changes
+  # Configure SOURCE_PROJECTS and MIGRATION_PROJECTS in .env
   workspace-sync:
     image: alpine:latest
     container_name: cca-workspace-sync
@@ -142,12 +143,12 @@ services:
       - ${CCA_WORKSPACE:-/data/cca-workspace}:/workspace:rw
       - ./workspace-sync:/sync:ro
     environment:
-      - GITLAB_URL=${GITLAB_URL:-http://192.168.4.204:8929}
+      - GITLAB_URL=${GITLAB_URL:-http://localhost:8929}
       - GITLAB_USER=${GITLAB_USER:-root}
       - GITLAB_PASS=${GITLAB_PASS}
-      - SOURCE_PROJECTS=EVA
-      - MIGRATION_PROJECTS=EVA-migration
-      - SYNC_INTERVAL=60
+      - SOURCE_PROJECTS=${SOURCE_PROJECTS}
+      - MIGRATION_PROJECTS=${MIGRATION_PROJECTS}
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-60}
       - CCA_URL=http://localhost:8500
 
 volumes:

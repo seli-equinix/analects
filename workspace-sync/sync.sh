@@ -1,19 +1,19 @@
 #!/bin/sh
-# Workspace-Sync: Clone/pull repos from GitLab to Spark1 local storage.
-# EVA (source): periodic pull (CCA reads for tracing/analysis).
-# EVA-migration: clone only (CCA manages commits/push directly).
+# Workspace-Sync: Clone/pull repos from a git server to local storage.
+# Source projects: periodic pull (CCA reads for tracing/analysis).
+# Migration projects: clone only (CCA manages commits/push directly).
 # NOTE: Uses POSIX sh (alpine image has ash, not bash).
 
 set -eu
 
-GITLAB_URL="${GITLAB_URL:-http://192.168.4.204:8929}"
+GITLAB_URL="${GITLAB_URL:?GITLAB_URL env var is required}"
 GITLAB_USER="${GITLAB_USER:-root}"
 GITLAB_PASS="${GITLAB_PASS:?GITLAB_PASS env var is required}"
 LOCAL_PATH="/workspace"
 SYNC_INTERVAL="${SYNC_INTERVAL:-60}"
 CCA_URL="${CCA_URL:-http://localhost:8500}"
-SOURCE_PROJECTS="${SOURCE_PROJECTS:-EVA}"
-MIGRATION_PROJECTS="${MIGRATION_PROJECTS:-EVA-migration}"
+SOURCE_PROJECTS="${SOURCE_PROJECTS:?SOURCE_PROJECTS env var is required}"
+MIGRATION_PROJECTS="${MIGRATION_PROJECTS:?MIGRATION_PROJECTS env var is required}"
 
 REMOTE_BASE="http://${GITLAB_USER}:${GITLAB_PASS}@$(echo "$GITLAB_URL" | sed 's|http://||')/${GITLAB_USER}"
 

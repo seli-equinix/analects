@@ -91,7 +91,7 @@ cost_per_1m_output = 0.0
 [providers.local.note_taker]
 model = "/models/YOUR_SMALL_MODEL"
 provider = "openai"
-base_url = "http://YOUR_NOTETAKER_HOST:8400/v1"
+base_url = "http://localhost:8400/v1"
 api_key_env = "OPENAI_API_KEY"
 initial_max_tokens = 4096
 max_tokens = 8192
@@ -121,7 +121,7 @@ temperature = 0.1
 [providers.local.tool_orchestrator]
 model = "/models/YOUR_SMALL_MODEL"
 provider = "openai"
-base_url = "http://YOUR_NOTETAKER_HOST:8400/v1"
+base_url = "http://localhost:8400/v1"
 api_key_env = "OPENAI_API_KEY"
 initial_max_tokens = 2048
 max_tokens = 2048
@@ -203,3 +203,19 @@ temperature = 0.1
 paths = ["/workspace"]
 collection = "codebase_files"
 skip_dirs = [".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist"]
+
+# ──────────────────────────────────────────────
+# WORKSPACE SYNC — Git Repository Configuration
+# ──────────────────────────────────────────────
+# Projects synced from git server by the workspace-sync container.
+# These values MUST also be set as env vars in the root .env:
+#   SOURCE_PROJECTS=your-project        (comma-separated for multiple)
+#   MIGRATION_PROJECTS=your-migration   (comma-separated for multiple)
+#
+# Source projects: read-only, periodic git pull (CCA analyzes code)
+# Migration projects: CCA has push access, manages commits directly
+
+[workspace]
+source_projects = ["your-project"]
+migration_projects = ["your-project-migration"]
+sync_interval = 60
