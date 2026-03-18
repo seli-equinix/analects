@@ -435,7 +435,7 @@ async def _remove_project_data(
             project_name, result,
         )
     except Exception as e:
-        logger.warning("Failed to remove data for project '%s': %s", project_name, e)
+        logger.error("Failed to remove data for project '%s': %s", project_name, e)
 
 
 async def _project_has_data(
