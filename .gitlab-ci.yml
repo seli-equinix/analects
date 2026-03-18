@@ -283,6 +283,19 @@ test-eva-code-trace:
     - if: '$RUN_TEST == "eva-code-trace"'
   timeout: 15m
 
+test-eva-full-trace:
+  extends: .test-base
+  variables:
+    PHOENIX_PROJECT_NAME: "eva-full-trace"
+  script:
+    - python -m pytest tests/integration/test_eva_full_trace.py -v --tb=short --with-judge --junitxml=report-eva-full-trace.xml
+  environment:
+    name: test/integration/eva-full-trace
+    deployment_tier: testing
+  rules:
+    - if: '$RUN_TEST == "eva-full-trace"'
+  timeout: 20m
+
 test-infra-inspection:
   extends: .test-base
   variables:
