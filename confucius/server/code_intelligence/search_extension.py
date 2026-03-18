@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Any, Optional
 
 from ...core.analect import AnalectRunContext
@@ -420,8 +421,11 @@ class CodeSearchExtension(ToolUseExtension):
         else:
             paths = self._get_configured_paths()
 
+        # Build project_map from config for correct project name assignment
+        project_map = self._build_project_map()
+
         indexer = WorkspaceIndexer(self._backend_clients)
-        stats = await indexer.index_paths(paths, force=force)
+        stats = await indexer.index_paths(paths, force=force, project_map=project_map)
         return json.dumps(stats)
 
     # ------------------------------------------------------------------
@@ -444,6 +448,22 @@ class CodeSearchExtension(ToolUseExtension):
         except Exception:
             pass
         return ["/workspace"]
+
+    def _build_project_map(self) -> dict[str, str]:
+        """Build {dir_path: project_name} from config.toml [indexer]."""
+        try:
+            from ...core.config import get_indexer_config
+            cfg = get_indexer_config()
+            project_map: dict[str, str] = {}
+            for project_name in cfg.projects:
+                for base_path in cfg.paths:
+                    candidate = os.path.join(base_path, project_name)
+                    if os.path.isdir(candidate):
+                        project_map[candidate] = project_name
+                        break
+            return project_map
+        except Exception:
+            return {}
 
     _cached_graph: Any = None
 

@@ -309,10 +309,16 @@ async def _sync_configured_projects() -> None:
         else:
             projects_needing_force.append(project_dir)
 
-    # Workspace root for correct project name detection.
-    # When paths=["/workspace"] and project dirs are /workspace/EVA etc.,
-    # the indexer needs the parent path to derive project="EVA" (not "code").
-    ws_root = indexer_cfg.paths[0] if indexer_cfg.paths else None
+    # Build project_map from config: {"/workspace/EVA": "EVA", ...}
+    # This uses the explicit names from config.toml [indexer].projects
+    # so project names are portable and not inferred from directory layout.
+    project_map: Dict[str, str] = {}
+    for project_name in indexer_cfg.projects:
+        for base_path in indexer_cfg.paths:
+            candidate = os.path.join(base_path, project_name)
+            if os.path.isdir(candidate):
+                project_map[candidate] = project_name
+                break
 
     # Force reindex projects with NO data (fresh install, data wipe)
     if projects_needing_force:
@@ -325,7 +331,7 @@ async def _sync_configured_projects() -> None:
             projects_needing_force,
             skip_dirs=set(indexer_cfg.skip_dirs),
             force=True,
-            workspace_root=ws_root,
+            project_map=project_map,
         )
         logger.info("Workspace monitor: force reindex complete — %s", stats)
 
@@ -337,7 +343,7 @@ async def _sync_configured_projects() -> None:
             projects_needing_sync,
             skip_dirs=set(indexer_cfg.skip_dirs),
             force=False,
-            workspace_root=ws_root,
+            project_map=project_map,
         )
         # Only log if something actually changed
         if stats.get("indexed", 0) > 0 or stats.get("deleted", 0) > 0:
@@ -1556,11 +1562,21 @@ async def reindex_workspace(request: Request) -> Dict[str, Any]:
     paths = body.get("paths", indexer_cfg.paths)
     force = body.get("force", False)
 
+    # Build project_map from config for correct project name assignment
+    project_map: Dict[str, str] = {}
+    for project_name in indexer_cfg.projects:
+        for base_path in indexer_cfg.paths:
+            candidate = os.path.join(base_path, project_name)
+            if os.path.isdir(candidate):
+                project_map[candidate] = project_name
+                break
+
     indexer = WorkspaceIndexer(backend_clients)
     stats = await indexer.index_paths(
         paths,
         skip_dirs=set(indexer_cfg.skip_dirs),
         force=force,
+        project_map=project_map,
     )
     logger.info("Workspace reindex complete: %s", stats)
     return {"status": "ok", "result": stats}

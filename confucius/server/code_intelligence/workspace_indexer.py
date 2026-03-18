@@ -58,21 +58,26 @@ COLLECTION_NAME = "codebase_files"
 def _detect_project(
     file_path: str,
     index_root: str,
-    workspace_root: Optional[str] = None,
+    project_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """Detect project name from file path.
 
-    When *workspace_root* is given (e.g. ``/workspace``), the project name
-    is the first directory component after it — regardless of which
-    sub-path was passed as *index_root*.  This handles the case where the
-    monitor passes ``/workspace/EVA`` as the root: without workspace_root
-    the first relative component would be ``code``, not ``EVA``.
+    When *project_map* is provided (``{"/workspace/EVA": "EVA", ...}``),
+    the project name is looked up from the map by matching the file path
+    against known project directories.  This uses the explicit names from
+    ``config.toml [indexer].projects`` — no path-based guessing.
 
-    Falls back to the first component relative to *index_root*, then to
-    the basename of *index_root*.
+    Falls back to the first directory component relative to *index_root*,
+    then to the basename of *index_root*.
     """
-    base = workspace_root or index_root
-    rel = os.path.relpath(file_path, base)
+    # Explicit map from config — preferred path
+    if project_map:
+        for proj_dir, proj_name in project_map.items():
+            if file_path.startswith(proj_dir + os.sep) or file_path == proj_dir:
+                return proj_name.replace("-", "_")
+
+    # Fallback: infer from directory structure
+    rel = os.path.relpath(file_path, index_root)
     parts = rel.split(os.sep)
     if len(parts) > 1:
         return parts[0].replace("-", "_")
@@ -125,7 +130,7 @@ class WorkspaceIndexer:
         paths: List[str],
         skip_dirs: Optional[set] = None,
         force: bool = False,
-        workspace_root: Optional[str] = None,
+        project_map: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Index all files under the given paths.
 
@@ -133,11 +138,10 @@ class WorkspaceIndexer:
             paths: List of directories to walk.
             skip_dirs: Directories to skip (defaults to DEFAULT_SKIP_DIRS).
             force: If True, re-index all files regardless of content hash.
-            workspace_root: Base workspace directory (e.g. ``/workspace``).
-                When set, project names are derived relative to this path
-                instead of the individual *paths* entries.  This ensures
-                ``/workspace/EVA/code/foo.ps1`` gets ``project="EVA"``
-                even when *paths* is ``["/workspace/EVA"]``.
+            project_map: Mapping of directory paths to config-defined project
+                names (e.g. ``{"/workspace/EVA": "EVA"}``).  When provided,
+                project names come from ``config.toml [indexer].projects``
+                rather than being inferred from directory structure.
 
         Returns:
             Stats dict: {files_scanned, indexed, skipped, errors, functions}.
@@ -197,7 +201,7 @@ class WorkspaceIndexer:
                 try:
                     result = await self._index_file(
                         fpath, paths, existing_hashes, force,
-                        workspace_root=workspace_root,
+                        project_map=project_map,
                     )
                     if result == "indexed":
                         stats["indexed"] += 1
@@ -314,7 +318,7 @@ class WorkspaceIndexer:
         index_roots: List[str],
         existing_hashes: Dict[str, str],
         force: bool,
-        workspace_root: Optional[str] = None,
+        project_map: Optional[Dict[str, str]] = None,
     ) -> str:
         """Index a single file. Returns status string."""
         try:
@@ -337,7 +341,7 @@ class WorkspaceIndexer:
         project = "default"
         for root in index_roots:
             if file_path.startswith(root):
-                project = _detect_project(file_path, root, workspace_root)
+                project = _detect_project(file_path, root, project_map)
                 break
 
         now = datetime.now().isoformat()
