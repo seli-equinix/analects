@@ -144,6 +144,7 @@ services:
       - ./workspace-sync:/sync:ro
       - ./config.toml:/etc/cca/config.toml:ro
     environment:
+      - PYTHONUNBUFFERED=1
       - GITLAB_PASS=${GITLAB_PASS}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - CCA_URL=http://localhost:8500
