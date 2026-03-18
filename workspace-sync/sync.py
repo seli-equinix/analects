@@ -163,55 +163,79 @@ def trigger_reindex() -> None:
 
 
 def main() -> None:
-    # Load config
-    try:
-        cfg = load_config()
-    except FileNotFoundError:
-        print(f"ERROR: Config file not found: {CONFIG_PATH}")
-        sys.exit(1)
-
-    ws = cfg.get("workspace", {})
-    repos = ws.get("repos", [])
-    if not repos:
-        print("ERROR: No repos defined in config.toml [[workspace.repos]]")
-        print("Add at least one [[workspace.repos]] entry to config.toml")
-        sys.exit(1)
-
-    interval = ws.get("sync_interval", 60)
-
-    # Build credentials lookup: id → {url, user, token}
-    credentials: dict[str, dict] = {}
-    for cred in ws.get("credentials", []):
-        credentials[cred["id"]] = cred
-
-    # Ensure workspace dir exists
     os.makedirs(WORKSPACE, exist_ok=True)
 
-    # Initial clone phase
-    newly_cloned = False
-    for repo in repos:
-        if clone_repo(repo, credentials):
-            newly_cloned = True
+    prev_repo_names: set[str] = set()
+    first_cycle = True
 
-    # Trigger reindex if we cloned new repos
-    if newly_cloned:
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-        print(f"[{ts}] New repos cloned, triggering initial reindex...")
-        trigger_reindex()
-
-    repo_names = [r["name"] for r in repos]
-    source_names = [r["name"] for r in repos if r.get("type") == "source"]
-    migration_names = [r["name"] for r in repos if r.get("type") == "migration"]
-    ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-    print(f"[{ts}] Sync started (interval={interval}s)")
-    print(f"  Source repos (auto-pull): {source_names}")
-    print(f"  Migration repos (CCA-managed): {migration_names}")
-
-    # Periodic pull loop
     while True:
-        time.sleep(interval)
-        if pull_source_repos(repos):
+        # Re-read config every cycle — picks up added/removed repos,
+        # branch changes, and interval changes without restart.
+        try:
+            cfg = load_config()
+        except FileNotFoundError:
+            if first_cycle:
+                print(f"ERROR: Config file not found: {CONFIG_PATH}")
+                sys.exit(1)
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+            print(f"[{ts}] WARN: Config file missing, retrying next cycle")
+            time.sleep(60)
+            continue
+        except Exception as e:
+            if first_cycle:
+                print(f"ERROR: Failed to parse config: {e}")
+                sys.exit(1)
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+            print(f"[{ts}] WARN: Config parse error: {e}")
+            time.sleep(60)
+            continue
+
+        ws = cfg.get("workspace", {})
+        repos = ws.get("repos", [])
+        interval = ws.get("sync_interval", 60)
+        credentials = {c["id"]: c for c in ws.get("credentials", [])}
+
+        if not repos and first_cycle:
+            print("ERROR: No repos defined in config.toml [[workspace.repos]]")
+            sys.exit(1)
+
+        current_names = {r["name"] for r in repos}
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+        # Detect config changes (skip first cycle — everything is "added")
+        if not first_cycle and prev_repo_names:
+            added = current_names - prev_repo_names
+            removed = prev_repo_names - current_names
+            if added:
+                print(f"[{ts}] Config change: repo(s) added: {sorted(added)}")
+            if removed:
+                print(f"[{ts}] Config change: repo(s) removed: {sorted(removed)}")
+                print(f"  (CCA workspace monitor will clean Qdrant/Memgraph)")
+
+        # Clone new repos + ensure correct branches on existing
+        newly_cloned = False
+        for repo in repos:
+            if clone_repo(repo, credentials):
+                newly_cloned = True
+
+        # Pull source repos
+        changed = pull_source_repos(repos)
+
+        # Trigger reindex if anything changed
+        if newly_cloned or changed:
             trigger_reindex()
+
+        # Log status on first cycle
+        if first_cycle:
+            source_names = sorted(r["name"] for r in repos if r.get("type") == "source")
+            migration_names = sorted(r["name"] for r in repos if r.get("type") == "migration")
+            print(f"[{ts}] Sync started (interval={interval}s)")
+            print(f"  Source repos (auto-pull): {source_names}")
+            print(f"  Migration repos (CCA-managed): {migration_names}")
+            first_cycle = False
+
+        prev_repo_names = current_names
+        time.sleep(interval)
 
 
 if __name__ == "__main__":

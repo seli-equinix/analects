@@ -314,9 +314,10 @@ class CCAConfig(BaseModel):
         return self.providers.get(provider_set, {}).get(role)
 
 
-# Module-level singleton
+# Module-level singleton with mtime-based hot-reload
 _config: CCAConfig | None = None
 _config_path: str | None = None  # Track which path was loaded (for error messages)
+_config_mtime: float = 0.0       # File mtime when config was last loaded
 
 
 def _resolve_config_path() -> Path:
@@ -325,12 +326,26 @@ def _resolve_config_path() -> Path:
 
 
 def _load_config() -> CCAConfig:
-    """Load config from TOML file. Raises CCAConfigError on failure."""
-    global _config, _config_path
-    if _config is not None:
-        return _config
+    """Load config from TOML file.  Auto-reloads if file mtime changed.
+
+    Raises CCAConfigError on failure.
+    """
+    global _config, _config_path, _config_mtime
 
     config_path = _resolve_config_path()
+
+    # Hot-reload: if config is cached, check if the file has been modified.
+    if _config is not None:
+        try:
+            current_mtime = config_path.stat().st_mtime
+            if current_mtime <= _config_mtime:
+                return _config  # File unchanged — use cache
+            # File changed — clear cache and fall through to reload
+            logger.info("Config file changed on disk, reloading: %s", config_path)
+            _config = None
+        except OSError:
+            return _config  # Can't stat file — use cache
+
     _config_path = str(config_path)
 
     if not config_path.exists():
@@ -348,6 +363,7 @@ def _load_config() -> CCAConfig:
         with open(config_path, "rb") as f:
             raw = tomllib.load(f)
         _config = CCAConfig(**raw)
+        _config_mtime = config_path.stat().st_mtime
         logger.info(f"Loaded CCA config from {config_path}")
     except CCAConfigError:
         raise
@@ -364,9 +380,10 @@ def _load_config() -> CCAConfig:
 
 def reload_config() -> CCAConfig:
     """Force reload config from disk (for hot-reload / UI updates)."""
-    global _config, _config_path
+    global _config, _config_path, _config_mtime
     _config = None
     _config_path = None
+    _config_mtime = 0.0
     return _load_config()
 
 

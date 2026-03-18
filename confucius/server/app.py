@@ -349,6 +349,94 @@ async def _sync_configured_projects() -> None:
         if stats.get("indexed", 0) > 0 or stats.get("deleted", 0) > 0:
             logger.info("Workspace monitor: incremental sync — %s", stats)
 
+    # ── Clean up removed projects ──
+    # If a project was removed from config, delete its data from Qdrant.
+    if collection_exists:
+        configured_normalized = {
+            p.replace("-", "_") for p in indexer_cfg.projects
+        }
+        indexed_projects = await _get_indexed_project_names(
+            qdrant, indexer_cfg.collection,
+        )
+        removed = indexed_projects - configured_normalized
+        if removed:
+            logger.info(
+                "Workspace monitor: %d removed project(s), cleaning: %s",
+                len(removed), sorted(removed),
+            )
+            for project_name in sorted(removed):
+                await _remove_project_data(
+                    qdrant, indexer_cfg.collection, project_name,
+                )
+
+
+async def _get_indexed_project_names(
+    qdrant: Any, collection: str,
+) -> set:
+    """Get the set of project names that have data in Qdrant."""
+    try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        projects: set[str] = set()
+        offset = None
+        while True:
+            points, next_offset = await qdrant.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="source",
+                            match=MatchValue(value="cca"),
+                        ),
+                    ]
+                ),
+                limit=100,
+                offset=offset,
+                with_payload=["project"],
+                with_vectors=False,
+            )
+            for pt in points:
+                proj = (pt.payload or {}).get("project", "")
+                if proj:
+                    projects.add(proj)
+            if next_offset is None:
+                break
+            offset = next_offset
+        return projects
+    except Exception as e:
+        logger.warning("Failed to get indexed projects: %s", e)
+        return set()
+
+
+async def _remove_project_data(
+    qdrant: Any, collection: str, project_name: str,
+) -> None:
+    """Remove all Qdrant points for a project (cleanup after removal)."""
+    try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        result = await qdrant.delete(
+            collection_name=collection,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="project",
+                        match=MatchValue(value=project_name),
+                    ),
+                    FieldCondition(
+                        key="source",
+                        match=MatchValue(value="cca"),
+                    ),
+                ]
+            ),
+        )
+        logger.info(
+            "Removed Qdrant data for project '%s': %s",
+            project_name, result,
+        )
+    except Exception as e:
+        logger.warning("Failed to remove data for project '%s': %s", project_name, e)
+
 
 async def _project_has_data(
     qdrant: Any, collection: str, project: str
