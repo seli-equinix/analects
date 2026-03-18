@@ -34,6 +34,106 @@ pytestmark = [
 OUTPUT_FILE = "EVA-standalone-orchestration.ps1"
 OUTPUT_PATH = f"/workspace/EVA-migration/{OUTPUT_FILE}"
 
+# Real JSON payloads — JobStart.ps1 routes based on these.
+# Linux build: has LDAPConfig, Oracle Linux template, AMER region
+# Windows build: no LDAPConfig, Win2K22 template, EMEA region
+JSON_LX = """\
+{
+  "UD": 2135,
+  "UR": 294754,
+  "App": {
+    "Name": "Orchestration",
+    "Type": "New",
+    "Location": "SV2",
+    "OS": "LINUX",
+    "Env": "DEV"
+  },
+  "VCenter": ["sv2lxitvcs01.corp.equinix.com"],
+  "VM": ["sv2lxtstbtqa930"],
+  "jobInfo": {
+    "SearchVM": {
+      "Type": "Name",
+      "VCList": [
+        "sv2lxvcstspr01.corp.equinix.com",
+        "sv2lxvcsmgpr002.corp.equinix.com",
+        "sv2lxvcsmgpr003.corp.equinix.com",
+        "sv2lxitvcs01.corp.equinix.com"
+      ]
+    },
+    "AddVMFromTemplate": {
+      "VLAN": "dvPG-Dev-VM-VLAN321",
+      "Cluster": "sv2poccluster01",
+      "Storage": "pmx-sv2poccluster01-pool-01",
+      "Folder": "EVA-VMBuildTesting",
+      "CPU": 2, "Mem": 4, "Disk1": 70, "Disk2": 80,
+      "Template": "ORACLE-LINUX-9-TEMPLATE",
+      "Contentlibrary": "EVA_Library-Global"
+    },
+    "InvokeIPAddressUpdate": {
+      "IP": "10.193.152.147",
+      "Net": "255.255.252.0",
+      "Gateway": "10.193.152.1",
+      "Region": "AMER",
+      "DiskMount1": "/Data1", "DiskSize1": 70,
+      "DiskMount2": "/Data2", "DiskSize2": 80
+    },
+    "LDAPConfig": {
+      "ENV": "NONPROD",
+      "AdminGroup": "SEC-GLOBAL-AMPADMINS",
+      "AdminGID": "NA", "AdminUse": "amp", "AdminUID": "NA",
+      "ReadGroup": "SEC-GLOBAL-AMPREAD",
+      "ReadGID": "NA", "ReadUser": "amp", "ReadUID": "NA",
+      "ShareGroup": "NA", "ShareGID": "NA",
+      "ShareUser": "NA", "ShareUID": "NA"
+    },
+    "BuildOptions": {
+      "Monitoring": "True", "Backup": "True",
+      "NetSegID": "0", "Patch": "True"
+    }
+  }
+}"""
+
+JSON_WN = """\
+{
+  "UD": 2135,
+  "UR": 491612994,
+  "App": {
+    "Name": "Orchestration",
+    "Type": "New",
+    "Location": "LD5",
+    "OS": "WINDOWS",
+    "Env": "PROD"
+  },
+  "VCenter": ["ld5wnvcsrv03.global.equinix.com"],
+  "VM": ["ld5wnpsejhpr005"],
+  "jobInfo": {
+    "SearchVM": {
+      "Type": "Name",
+      "VCList": ["ld5wnvcsrv03.global.equinix.com"]
+    },
+    "AddVMFromTemplate": {
+      "VLAN": "dvPG-prod-320-BO",
+      "Cluster": "ld5prodcluster01",
+      "Storage": "ld5unity01-ld5prodcluster-pool",
+      "Folder": "EVA-VMBuildNew",
+      "CPU": 8, "Mem": 16, "Disk1": 50,
+      "Template": "WIN2K22-TEMPLATE",
+      "Contentlibrary": "EVA_Library-Global"
+    },
+    "InvokeIPAddressUpdate": {
+      "IP": "10.130.150.3",
+      "Net": "255.255.252.0",
+      "Gateway": "10.130.148.1",
+      "Region": "EMEA",
+      "DiskMount1": "E", "DiskSize1": 50
+    },
+    "BuildOptions": {
+      "Monitoring": "True", "Backup": "True",
+      "NetSegID": "0", "Patch": "False"
+    }
+  }
+}"""
+
 
 class TestEvaFullTrace:
     """Real-world EVA scenario: trace, assemble, write, and validate code integrity."""
@@ -56,15 +156,21 @@ class TestEvaFullTrace:
 
         try:
             # ── Turn 1: Full trace + assemble request ──
-            # This is the real user request — one message, complete context.
+            # This is the real user request — one message with both JSON
+            # payloads.  JobStart.ps1 routes based on the JSON content
+            # (OS type, job sections), so the LLM needs to see both
+            # payloads to trace both Windows and Linux code paths.
             msg1 = (
                 "Hello this is Sean. In your knowledge on the EVA Project "
                 "there are two files: equinix.automation.vcenter.psm1 and "
                 "jobstart.ps1.\n\n"
                 "jobstart.ps1 takes JSON input and uses it to build both "
-                "Windows and Linux servers. The JSON contains sections for "
-                "SearchVM, AddVMFromTemplate, InvokeIPAddressUpdate, "
-                "LDAPConfig (Linux only), and BuildOptions.\n\n"
+                "Windows and Linux servers. Here are the two JSON inputs:\n\n"
+                f"Linux build JSON:\n```json\n{JSON_LX}\n```\n\n"
+                f"Windows build JSON:\n```json\n{JSON_WN}\n```\n\n"
+                "The script is invoked as:\n"
+                '& "C:\\Users\\seli\\PowershellCode\\postbuildscript\\'
+                'JobStart.ps1" -jsonJob $jsonLX\n\n'
                 "I need you to trace the code execution for BOTH Windows "
                 "and Linux VM build paths starting from JobStart.ps1. Then "
                 "give me back a single standalone .ps1 file that contains "

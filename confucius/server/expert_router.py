@@ -917,7 +917,20 @@ async def classify_request(
             for msg in recent_messages[-2:]:
                 messages.append(msg)
 
-        messages.append({"role": "user", "content": user_message})
+        # Truncate very long messages for classification — Functionary only
+        # needs enough context to understand intent, not the full payload
+        # (e.g. JSON data, code blocks).  1500 chars ≈ 400 tokens, plenty
+        # for routing.  The full message still goes to the real LLM.
+        _ROUTER_MAX_CHARS = 1500
+        router_message = user_message
+        if len(user_message) > _ROUTER_MAX_CHARS:
+            router_message = user_message[:_ROUTER_MAX_CHARS] + "\n[...truncated for classification]"
+            logger.debug(
+                "Truncated message for router: %d → %d chars",
+                len(user_message), _ROUTER_MAX_CHARS,
+            )
+
+        messages.append({"role": "user", "content": router_message})
 
         payload = {
             "model": "functionary",
