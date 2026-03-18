@@ -2,8 +2,11 @@
 # pyre-strict
 
 import asyncio
+import logging
 import re
 from typing import override
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
@@ -338,6 +341,30 @@ class AnthropicLLMOrchestrator(LLMOrchestrator):
                 tool_result = await ext._on_tool_use(tool_use=tool_use, context=context)
                 if tool_result is None:
                     continue
+
+                # Guard against oversized tool results that would overflow
+                # the LLM context window.  Tools that produce large output
+                # (e.g. assemble_traced_code) should write to a file instead,
+                # but this catches any tool that returns too much text.
+                _MAX_TOOL_RESULT_CHARS = 150_000  # ~50K tokens at 3 chars/token
+                if tool_result.content:
+                    content_len = len(str(tool_result.content))
+                    if content_len > _MAX_TOOL_RESULT_CHARS:
+                        logger.warning(
+                            "Tool '%s' result too large (%d chars > %d), truncating",
+                            tool_use.name, content_len, _MAX_TOOL_RESULT_CHARS,
+                        )
+                        truncated = str(tool_result.content)[:_MAX_TOOL_RESULT_CHARS]
+                        truncated += (
+                            f"\n\n[TRUNCATED: original was {content_len:,} chars. "
+                            f"If this is assembled code, use the output_path parameter "
+                            f"to write to a file instead.]"
+                        )
+                        tool_result = ant.MessageContentToolResult(
+                            tool_use_id=tool_result.tool_use_id,
+                            content=truncated,
+                            is_error=tool_result.is_error,
+                        )
 
                 context.memory_manager.add_messages(
                     [CfMessage(type=cf.MessageType.HUMAN, content=[tool_result.dict()])]

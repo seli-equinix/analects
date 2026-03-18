@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -34,8 +35,10 @@ from ...orchestrator.extensions.tool_use import ToolUseExtension
 
 logger = logging.getLogger(__name__)
 
-# In-memory trace result cache (per-process, cleared on restart)
+# In-memory trace result cache (per-process, TTL + max-size eviction)
 _trace_cache: Dict[str, Dict[str, Any]] = {}
+_TRACE_CACHE_MAX = 50       # Keep at most 50 traces
+_TRACE_CACHE_TTL = 3600     # 1 hour TTL
 
 COLLECTION_NAME = "codebase_files"
 
@@ -109,11 +112,12 @@ class CodeTraceExtension(ToolUseExtension):
             ant.Tool(
                 name="assemble_traced_code",
                 description=(
-                    "Assemble previously traced functions into a single output. "
+                    "Assemble previously traced functions into a standalone file on disk. "
                     "Reads full function bodies from source files (no truncation). "
-                    "Output includes entry file code, all needed functions, and external deps.\n"
-                    "Use after trace_execution to get the complete code assembly.\n"
-                    "Produces runnable, self-contained code ready for review or migration."
+                    "Writes the complete assembled code to output_path and returns a compact summary.\n"
+                    "The output file contains: entry file content, all needed functions (full code), "
+                    "and a list of external dependencies.\n"
+                    "Use after trace_execution. The LLM receives a summary; the full code is in the file."
                 ),
                 input_schema={
                     "type": "object",
@@ -129,6 +133,13 @@ class CodeTraceExtension(ToolUseExtension):
                                 "Output format: single_file (all in one), "
                                 "grouped_by_source (organized by source file), "
                                 "minimal (signatures only)"
+                            ),
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": (
+                                "File path to write assembled code. "
+                                "Defaults to /workspace/{project}-trace-{trace_id}.{ext}"
                             ),
                         },
                         "include_entry_file": {
@@ -547,7 +558,18 @@ class CodeTraceExtension(ToolUseExtension):
             "entry_file_content": entry_file_content,
         }
 
+        # Evict expired / over-limit cache entries before storing
+        now = time.time()
+        expired = [k for k, v in _trace_cache.items()
+                   if now - v.get("_ts", 0) > _TRACE_CACHE_TTL]
+        for k in expired:
+            del _trace_cache[k]
+        if len(_trace_cache) >= _TRACE_CACHE_MAX:
+            oldest = min(_trace_cache, key=lambda k: _trace_cache[k].get("_ts", 0))
+            del _trace_cache[oldest]
+
         # Cache for assemble_traced_code
+        trace_result["_ts"] = now
         _trace_cache[trace_id] = trace_result
 
         # Return summary (without full content to save tokens)
@@ -584,11 +606,68 @@ class CodeTraceExtension(ToolUseExtension):
     # assemble_traced_code handler
     # ------------------------------------------------------------------
 
+    def _write_and_summarize(
+        self,
+        assembled: str,
+        trace: Dict[str, Any],
+        trace_id: str,
+        bodies: Dict[str, str],
+        external: List[str],
+        missing: List[str],
+        output_format: str,
+        output_path: str,
+        language: str,
+    ) -> str:
+        """Write assembled code to a file and return a compact JSON summary."""
+        if not output_path:
+            ext_map = {"powershell": "ps1", "python": "py", "bash": "sh"}
+            ext = ext_map.get(language, "txt")
+            project = trace.get("project", "trace")
+            output_path = f"/workspace/{project}-trace-{trace_id}.{ext}"
+
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(assembled)
+
+        line_count = assembled.count("\n") + 1
+        byte_count = len(assembled.encode("utf-8"))
+
+        func_dict = trace.get("func_dict", {})
+        source_files = set(
+            func_dict[n]["file_path"]
+            for n in bodies
+            if n in func_dict
+        )
+
+        summary = {
+            "status": "success",
+            "output_path": output_path,
+            "format": output_format,
+            "functions_assembled": len(bodies),
+            "source_files": len(source_files),
+            "lines": line_count,
+            "bytes": byte_count,
+            "external_deps_count": len(external),
+            "missing_functions": missing[:10],
+            "entry_file": os.path.basename(trace.get("entry_file", "") or ""),
+            "top_functions": list(bodies.keys())[:20],
+            "message": (
+                f"Assembled code written to {output_path}. "
+                f"Use str_replace_editor VIEW to inspect sections."
+            ),
+        }
+        logger.info(
+            "assemble_traced_code: wrote %d functions (%d lines, %d bytes) to %s",
+            len(bodies), line_count, byte_count, output_path,
+        )
+        return json.dumps(summary, indent=2)
+
     async def _handle_assemble(self, inp: Dict[str, Any]) -> str:
         """Handle assemble_traced_code tool call."""
         trace_id = inp.get("trace_id", "").strip()
         output_format = inp.get("output_format", "single_file")
         include_entry = inp.get("include_entry_file", True)
+        output_path = inp.get("output_path", "").strip()
 
         if not trace_id or trace_id not in _trace_cache:
             return json.dumps({
@@ -607,12 +686,16 @@ class CodeTraceExtension(ToolUseExtension):
         # Determine comment prefix
         comment = "#" if language in ("powershell", "python", "bash") else "//"
 
-        # Read all function bodies from disk
+        # Read all function bodies from disk.
+        # Skip functions from entry file when it's included in full
+        # to avoid duplication (entry file already contains them).
         bodies: Dict[str, str] = {}
         missing: List[str] = []
         for name in needed:
             if name not in func_dict:
                 missing.append(name)
+                continue
+            if include_entry and entry_file and func_dict[name].get("file_path") == entry_file:
                 continue
             body = self._read_function_body(func_dict[name])
             if body:
@@ -643,7 +726,11 @@ class CodeTraceExtension(ToolUseExtension):
                 for dep in sorted(external):
                     lines.append(f"{comment}   - {dep}")
 
-            return "\n".join(lines)
+            assembled = "\n".join(lines)
+            return self._write_and_summarize(
+                assembled, trace, trace_id, bodies, external,
+                missing, output_format, output_path, language,
+            )
 
         elif output_format == "grouped_by_source":
             # Group functions by source file
@@ -682,7 +769,11 @@ class CodeTraceExtension(ToolUseExtension):
                 for dep in sorted(external):
                     lines.append(f"{comment}   - {dep}")
 
-            return "\n".join(lines)
+            assembled = "\n".join(lines)
+            return self._write_and_summarize(
+                assembled, trace, trace_id, bodies, external,
+                missing, output_format, output_path, language,
+            )
 
         else:
             # single_file (default)
@@ -737,4 +828,8 @@ class CodeTraceExtension(ToolUseExtension):
                 for name in sorted(missing):
                     lines.append(f"{comment}   - {name}")
 
-            return "\n".join(lines)
+            assembled = "\n".join(lines)
+            return self._write_and_summarize(
+                assembled, trace, trace_id, bodies, external,
+                missing, output_format, output_path, language,
+            )
