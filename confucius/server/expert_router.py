@@ -880,6 +880,133 @@ async def close_client() -> None:
             _client = None
 
 
+# ─── Data block stripping for router messages ───
+
+
+def _strip_large_braced_blocks(text: str, threshold: int = 100) -> str:
+    """Replace large {…} blocks (nested JSON) with a placeholder.
+
+    Walks the string tracking brace depth.  When a top-level block
+    exceeds *threshold* characters it is replaced with
+    ``[JSON payload omitted]``.  Small blocks (≤ threshold) are kept
+    because they may contain routing-relevant content like
+    ``{"OS": "LINUX"}``.
+    """
+    result: list[str] = []
+    depth = 0
+    block_start = -1
+
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                block_start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth <= 0:
+                depth = 0
+                if block_start >= 0:
+                    block_len = i - block_start + 1
+                    if block_len > threshold:
+                        result.append("[JSON payload omitted]")
+                    else:
+                        result.append(text[block_start : i + 1])
+                    block_start = -1
+                else:
+                    result.append(ch)
+                continue
+
+        if depth == 0 and block_start < 0:
+            result.append(ch)
+
+    # Unclosed brace — flush remainder
+    if block_start >= 0:
+        remaining = text[block_start:]
+        if len(remaining) > threshold:
+            result.append("[JSON payload omitted]")
+        else:
+            result.append(remaining)
+
+    return "".join(result)
+
+
+def _strip_data_blocks(text: str) -> str:
+    """Strip large data blocks from a message, preserving prose for routing.
+
+    Removes JSON objects (>100 chars), code fences, and long variable
+    assignments while keeping the natural-language intent that Functionary
+    needs for classification.  The full unstripped message is still sent
+    to the real LLM.
+    """
+    # 1. Strip code fences (```...```)
+    text = re.sub(r"```[\s\S]*?```", "[code block omitted]", text)
+
+    # 2. Strip large JSON objects ({…} > 100 chars)
+    text = _strip_large_braced_blocks(text, threshold=100)
+
+    # 3. Strip PowerShell / Bash variable assignments with long string values
+    text = re.sub(
+        r"""\$\w+\s*=\s*'[^']{100,}'""",
+        "[variable assignment omitted]",
+        text,
+    )
+    text = re.sub(
+        r'''\$\w+\s*=\s*"[^"]{100,}"''',
+        "[variable assignment omitted]",
+        text,
+    )
+
+    # 4. Collapse excessive blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+# ─── Slot-aware timeout helpers ───
+
+
+async def _check_slot_availability(config: Any) -> Dict[str, Any]:
+    """Quick pre-flight check on llama.cpp slot status (~2ms).
+
+    Returns ``{"available": bool, "busy_slots": int, "total_slots": int}``.
+    On any error returns optimistic defaults so routing proceeds normally.
+    """
+    try:
+        client = await _get_client()
+        resp = await client.get(f"{config.url}/slots", timeout=2.0)
+        slots = resp.json()
+        busy = sum(1 for s in slots if s.get("is_processing", False))
+        return {
+            "available": busy < len(slots),
+            "busy_slots": busy,
+            "total_slots": len(slots),
+        }
+    except Exception:
+        return {"available": True, "busy_slots": 0, "total_slots": 0}
+
+
+async def _diagnose_timeout(config: Any) -> str:
+    """After a timeout, check what state Functionary is in.
+
+    Returns:
+        ``"processing"`` — server alive, slots busy (slow but working)
+        ``"idle"``       — server alive, nothing running (odd — maybe just finished)
+        ``"unhealthy"``  — server unreachable or error
+    """
+    try:
+        client = await _get_client()
+        health = await client.get(f"{config.url}/health", timeout=2.0)
+        if health.status_code != 200:
+            return "unhealthy"
+
+        slots_resp = await client.get(f"{config.url}/slots", timeout=2.0)
+        slots = slots_resp.json()
+        busy = sum(1 for s in slots if s.get("is_processing", False))
+        return "processing" if busy > 0 else "idle"
+    except Exception:
+        return "unhealthy"
+
+
 async def classify_request(
     user_message: str,
     config: RouterConfig,
@@ -917,17 +1044,17 @@ async def classify_request(
             for msg in recent_messages[-2:]:
                 messages.append(msg)
 
-        # Truncate very long messages for classification — Functionary only
-        # needs enough context to understand intent, not the full payload
-        # (e.g. JSON data, code blocks).  1500 chars ≈ 400 tokens, plenty
-        # for routing.  The full message still goes to the real LLM.
-        _ROUTER_MAX_CHARS = 1500
-        router_message = user_message
-        if len(user_message) > _ROUTER_MAX_CHARS:
-            router_message = user_message[:_ROUTER_MAX_CHARS] + "\n[...truncated for classification]"
+        # Strip data blocks (JSON, code fences, variable assignments)
+        # instead of blind truncation.  Keeps all prose — head AND tail —
+        # so routing signals at the end of the message are preserved.
+        # The full unstripped message still goes to the real 80B LLM.
+        router_message = _strip_data_blocks(user_message)
+        span.set_attribute("cca.router.message_original_len", len(user_message))
+        span.set_attribute("cca.router.message_stripped_len", len(router_message))
+        if len(router_message) != len(user_message):
             logger.debug(
-                "Truncated message for router: %d → %d chars",
-                len(user_message), _ROUTER_MAX_CHARS,
+                "Stripped data blocks for router: %d → %d chars",
+                len(user_message), len(router_message),
             )
 
         messages.append({"role": "user", "content": router_message})
@@ -968,21 +1095,88 @@ async def classify_request(
             except Exception as e:
                 logger.warning("Failed to set OpenInference input attrs: %s", e)
 
+        # ── Slot-aware adaptive timeout ──
+        # Check Functionary slot status before sending.  If all slots are
+        # busy, extend timeout so the queued request doesn't get killed
+        # while waiting for a free slot.
+        slot_info = await _check_slot_availability(config)
+        base_timeout = config.timeout_ms / 1000.0
+
+        if (
+            slot_info["total_slots"] > 0
+            and slot_info["busy_slots"] >= slot_info["total_slots"]
+        ):
+            effective_timeout = base_timeout * 2
+            logger.info(
+                "All %d Functionary slots busy, extending timeout %.0fs → %.0fs",
+                slot_info["total_slots"], base_timeout, effective_timeout,
+            )
+        else:
+            effective_timeout = base_timeout
+
+        span.set_attribute(
+            "cca.router.slot_availability",
+            f"{slot_info['busy_slots']}/{slot_info['total_slots']}",
+        )
+        span.set_attribute("cca.router.effective_timeout_ms", effective_timeout * 1000)
+
+        data: Optional[Dict[str, Any]] = None
         try:
             resp = await client.post(
                 f"{config.url}/v1/chat/completions",
                 json=payload,
-                timeout=config.timeout_ms / 1000.0,
+                timeout=effective_timeout,
             )
             resp.raise_for_status()
             data = resp.json()
+
         except httpx.TimeoutException:
             elapsed = (time.monotonic() - start) * 1000
-            logger.warning(f"Router classification timed out ({elapsed:.0f}ms), using fallback")
-            span.set_attribute("cca.router.status", "timeout")
             span.set_attribute("cca.router.elapsed_ms", elapsed)
-            span.set_status(StatusCode.ERROR, "timeout")
-            return _fallback(config, elapsed, "timeout")
+
+            # Diagnose: is Functionary alive but slow, or actually down?
+            diagnosis = await _diagnose_timeout(config)
+            span.set_attribute("cca.router.diagnosis", diagnosis)
+
+            if diagnosis == "processing":
+                # Server alive, slots busy — retry once with 2x base timeout.
+                logger.warning(
+                    "Router timed out (%.0fms) but Functionary is processing "
+                    "— retrying with %.0fs timeout",
+                    elapsed, base_timeout * 2,
+                )
+                try:
+                    resp = await client.post(
+                        f"{config.url}/v1/chat/completions",
+                        json=payload,
+                        timeout=base_timeout * 2,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception:
+                    span.set_attribute("cca.router.status", "timeout-retry-failed")
+                    span.set_status(StatusCode.ERROR, "timeout-retry-failed")
+                    return _fallback(config, elapsed, "timeout-retry-failed")
+
+            elif diagnosis == "unhealthy":
+                logger.error(
+                    "Router timed out (%.0fms) and Functionary is UNHEALTHY",
+                    elapsed,
+                )
+                span.set_attribute("cca.router.status", "timeout-unhealthy")
+                span.set_status(StatusCode.ERROR, "timeout-unhealthy")
+                return _fallback(config, elapsed, "timeout-unhealthy")
+
+            else:
+                # idle or unknown — standard fallback
+                logger.warning(
+                    "Router timed out (%.0fms), diagnosis=%s, using fallback",
+                    elapsed, diagnosis,
+                )
+                span.set_attribute("cca.router.status", "timeout")
+                span.set_status(StatusCode.ERROR, "timeout")
+                return _fallback(config, elapsed, "timeout")
+
         except Exception as e:
             elapsed = (time.monotonic() - start) * 1000
             logger.error(f"Router classification error: {e}")
