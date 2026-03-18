@@ -130,26 +130,24 @@ services:
       - ./config.toml:/etc/cca/config.toml:ro
       - ./infrastructure.toml:/etc/cca/infrastructure.toml:ro
 
-  # Workspace sync: clones/pulls repos from git server, triggers CCA re-index on changes
-  # Configure SOURCE_PROJECTS and MIGRATION_PROJECTS in .env
+  # Workspace sync: clones/pulls repos from config.toml [[workspace.repos]]
+  # Repos, branches, and credentials are all defined in config.toml.
+  # Only secrets (passwords/tokens) come from .env via ${VAR} references.
   workspace-sync:
-    image: alpine:latest
+    image: python:3.12-alpine
     container_name: cca-workspace-sync
     restart: unless-stopped
-    entrypoint: /bin/sh
-    command: ["/sync/sync.sh"]
+    command: ["python3", "/sync/sync.py"]
     network_mode: host
     volumes:
       - ${CCA_WORKSPACE:-/data/cca-workspace}:/workspace:rw
       - ./workspace-sync:/sync:ro
+      - ./config.toml:/etc/cca/config.toml:ro
     environment:
-      - GITLAB_URL=${GITLAB_URL:-http://localhost:8929}
-      - GITLAB_USER=${GITLAB_USER:-root}
       - GITLAB_PASS=${GITLAB_PASS}
-      - SOURCE_PROJECTS=${SOURCE_PROJECTS}
-      - MIGRATION_PROJECTS=${MIGRATION_PROJECTS}
-      - SYNC_INTERVAL=${SYNC_INTERVAL:-60}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - CCA_URL=http://localhost:8500
+      - CCA_CONFIG_PATH=/etc/cca/config.toml
 
 volumes:
   cca-sessions:

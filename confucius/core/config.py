@@ -201,11 +201,77 @@ class ToolRouterConfig(BaseModel):
         extra = "ignore"
 
 
+class CredentialConfig(BaseModel):
+    """Named credential for accessing a git server.
+
+    Token values can reference environment variables using ``${VAR}``
+    syntax (e.g. ``"${GITLAB_PASS}"``).  The sync script resolves these
+    at runtime so secrets never live in the TOML file.
+    """
+
+    id: str                                      # Lookup key (e.g. "gitlab-local")
+    url: str = "http://localhost:8929"            # Git server base URL
+    user: str = "root"
+    token: str = ""                              # Plain text or "${ENV_VAR}"
+
+    class Config:
+        extra = "ignore"
+
+
+class RepoConfig(BaseModel):
+    """Single repository definition."""
+
+    name: str                                    # Dir name under /workspace & Qdrant project name
+    repo: str = ""                               # Repo path on server (e.g. "root/EVA")
+    credential: str = ""                         # ID of [[workspace.credentials]] entry
+    type: str = "source"                         # "source" (pull) or "migration" (CCA manages)
+    branch: str = "main"                         # Git branch to clone/track
+
+    class Config:
+        extra = "ignore"
+
+
+class WorkspaceConfig(BaseModel):
+    """Workspace repository management — single source of truth.
+
+    Defines which git repos are cloned into ``/workspace``, how they
+    are authenticated, and how they are synced.  Both ``workspace-sync``
+    (cloning/pulling) and the CCA indexer (Qdrant/Memgraph) derive their
+    project lists from this section.
+    """
+
+    sync_interval: int = 60                      # Seconds between git pulls
+    credentials: list[CredentialConfig] = Field(default_factory=list)
+    repos: list[RepoConfig] = Field(default_factory=list)
+
+    class Config:
+        extra = "ignore"
+
+    @property
+    def source_repos(self) -> list[RepoConfig]:
+        return [r for r in self.repos if r.type == "source"]
+
+    @property
+    def migration_repos(self) -> list[RepoConfig]:
+        return [r for r in self.repos if r.type == "migration"]
+
+    @property
+    def all_project_names(self) -> list[str]:
+        return [r.name for r in self.repos]
+
+    def get_credential(self, cred_id: str) -> CredentialConfig | None:
+        for c in self.credentials:
+            if c.id == cred_id:
+                return c
+        return None
+
+
 class IndexerConfig(BaseModel):
     """Workspace indexer configuration.
 
     Controls which projects are monitored and synced to Qdrant + Memgraph.
-    Only projects listed in ``projects`` are indexed — no auto-discovery.
+    If ``projects`` is empty, project names are derived from
+    ``[workspace].repos`` automatically.
     """
 
     paths: list[str] = Field(default_factory=lambda: ["/workspace"])
@@ -235,6 +301,7 @@ class CCAConfig(BaseModel):
     tool_router: ToolRouterConfig = Field(default_factory=ToolRouterConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
     indexer: IndexerConfig = Field(default_factory=IndexerConfig)
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
 
     class Config:
         extra = "ignore"
@@ -384,6 +451,19 @@ def get_indexer_config() -> IndexerConfig:
     """Get workspace indexer configuration.
 
     Returns IndexerConfig with defaults if [indexer] section is missing.
+    If ``projects`` is empty, derives project names from ``[workspace].repos``.
     """
     config = _load_config()
-    return config.indexer
+    indexer = config.indexer
+    if not indexer.projects and config.workspace.repos:
+        indexer.projects = config.workspace.all_project_names
+    return indexer
+
+
+def get_workspace_config() -> WorkspaceConfig:
+    """Get workspace repository management configuration.
+
+    Returns WorkspaceConfig with defaults if [workspace] section is missing.
+    """
+    config = _load_config()
+    return config.workspace

@@ -196,32 +196,59 @@ timeout_ms = 10000
 temperature = 0.1
 
 # ──────────────────────────────────────────────
+# WORKSPACE — Repository Management (Single Source of Truth)
+# ──────────────────────────────────────────────
+# Defines ALL repos cloned into /workspace.  Both workspace-sync (git
+# clone/pull) and the CCA indexer (Qdrant/Memgraph) derive their project
+# lists from this section.  To add/remove a repo, edit here and restart
+# workspace-sync.
+
+[workspace]
+sync_interval = 60                      # seconds between git pulls
+
+# Credentials — authentication for git servers.
+# ${VAR} references are resolved from environment variables at runtime
+# so passwords/tokens never live in this file.
+[[workspace.credentials]]
+id = "gitlab-local"
+url = "http://YOUR_GITLAB_HOST:8929"
+user = "root"
+token = "${GITLAB_PASS}"                # Set GITLAB_PASS in .env
+
+# To add GitHub repos:
+# [[workspace.credentials]]
+# id = "github"
+# url = "https://github.com"
+# user = "your-username"
+# token = "${GITHUB_TOKEN}"            # Set GITHUB_TOKEN in .env
+
+# Repositories — each entry is one repo managed in /workspace.
+# type = "source"    → periodic git pull (CCA reads only)
+# type = "migration" → clone once (CCA manages commits/push)
+[[workspace.repos]]
+name = "your-project"
+repo = "root/your-project"
+credential = "gitlab-local"
+type = "source"
+branch = "main"
+
+[[workspace.repos]]
+name = "your-project-migration"
+repo = "root/your-project-migration"
+credential = "gitlab-local"
+type = "migration"
+branch = "main"
+
+# ──────────────────────────────────────────────
 # CODE INTELLIGENCE — Workspace Indexer
 # ──────────────────────────────────────────────
 # The workspace monitor continuously checks configured projects for data
-# integrity.  It auto-detects empty/missing data (fresh install, data wipe),
-# indexes new/changed files, and removes stale data for deleted files.
-# Only projects listed in `projects` are monitored — no auto-discovery.
+# integrity.  If `projects` is empty, project names are derived from
+# [[workspace.repos]] automatically.
 
 [indexer]
 paths = ["/workspace"]
-projects = ["your-project", "your-project-migration"]   # must match directory names under paths
-sync_interval = 300                                      # seconds between sync cycles
+# projects = []                         # Empty → derived from workspace.repos
+sync_interval = 300                     # seconds between monitor cycles
 collection = "codebase_files"
 skip_dirs = [".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist"]
-
-# ──────────────────────────────────────────────
-# WORKSPACE SYNC — Git Repository Configuration
-# ──────────────────────────────────────────────
-# Projects synced from git server by the workspace-sync container.
-# These values MUST also be set as env vars in the root .env:
-#   SOURCE_PROJECTS=your-project        (comma-separated for multiple)
-#   MIGRATION_PROJECTS=your-migration   (comma-separated for multiple)
-#
-# Source projects: read-only, periodic git pull (CCA analyzes code)
-# Migration projects: CCA has push access, manages commits directly
-
-[workspace]
-source_projects = ["your-project"]
-migration_projects = ["your-project-migration"]
-sync_interval = 60
