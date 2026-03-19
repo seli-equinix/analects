@@ -202,36 +202,44 @@ Manage the stack: `./setup.sh stop`, `./setup.sh logs [service]`, `./setup.sh st
 
 ---
 
-## Infrastructure Requirements
+## What's in the Stack
 
-Analects is not just one container — it's a stack of services that work together.
+`docker compose up -d` starts **all of these automatically** — you don't need to set them up individually. The only things you provide are: a GPU with model weights, a `.env` file, and access to a git server.
+
+### Included Services (all started by `docker compose up -d`)
+
+| Service | Port | Image | Purpose |
+|---------|------|-------|---------|
+| **Analects** | 8500 | `hellohal2064/analects` | Agent-as-a-Model HTTP server |
+| **Workspace Sync** | — | `python:3.12-alpine` | Clones/pulls repos from git server into `/workspace/` |
+| **Functionary Router** | 8001 | `hellohal2064/cca-functionary-router` | Request classification (llama.cpp) |
+| **vLLM Note-Taker** | 8400 | `hellohal2064/cca-notetaker` | Background note extraction (small model) |
+| **Embedding Server** | 8200 | `hellohal2064/cca-embedding-server` | Semantic search vectors (4096 dims) |
+| **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
+| **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
+| **SearXNG** | 8888 | `searxng/searxng` | Web search for the agent |
+| **Valkey** | — | `valkey/valkey:8-alpine` | SearXNG cache |
+| **Memgraph** | 7687 | `memgraph/memgraph` | Code knowledge graph |
+| **Memgraph Lab** | 3100 | `memgraph/lab` | Graph visualization UI |
+
+### You Provide
+
+| Requirement | Why | Notes |
+|-------------|-----|-------|
+| **GPU + model weights** | vLLM coder needs a large model | Runs on a separate machine; set `VLLM_URL` in `.env` |
+| **Git server** | Workspace-sync clones your repos for the agent to work on | GitLab, GitHub, Gitea — any git server over HTTP/HTTPS |
+| **Model weights on host** | Note-taker, embedding, and router models | Set `MODELS_DIR` in `.env` pointing to your HuggingFace cache |
 
 ### Required Models
 
-| Model | Purpose | Size | Where It Runs |
-|-------|---------|------|---------------|
-| **Qwen3.5-35B-A3B-FP8** | Coder, planner, reviewer, tester, search | ~20GB | vLLM on Spark2 (:8000) |
-| **Qwen3-8B-FP8** (or Qwen3.5-9B) | Note-taker, tool orchestrator | ~9GB | vLLM on Spark1 (:8400) |
-| **Qwen3-Embedding-8B** | Semantic search embeddings (4096 dims) | ~8GB | Embedding server on Spark1 (:8200) |
-| **functionary-small-v3.2.Q4_0.gguf** | Expert router (request classification) | ~4GB | llama.cpp on Spark1 (:8001) |
+| Model | Purpose | Size | Used By |
+|-------|---------|------|---------|
+| **Qwen3.5-35B-A3B-FP8** | Coder, planner, reviewer, tester, search | ~20GB | External vLLM (`:8000`) |
+| **Qwen3-8B-FP8** (or Qwen3.5-9B) | Note-taker, tool orchestrator | ~9GB | Note-taker container (`:8400`) |
+| **Qwen3-Embedding-8B** | Semantic search embeddings (4096 dims) | ~8GB | Embedding container (`:8200`) |
+| **functionary-small-v3.2.Q4_0.gguf** | Expert router (request classification) | ~4GB | Functionary container (`:8001`) |
 
 > **Note**: Any OpenAI-compatible models work. The Qwen models listed above are what the reference deployment uses. You can substitute with any model that supports tool calling.
-
-### Required Services
-
-These must be running before Analects starts:
-
-| Service | Port | Container/Image | Purpose |
-|---------|------|-----------------|---------|
-| **vLLM (coder)** | 8000 | vLLM with your large model | Primary LLM for all agent work |
-| **vLLM (note-taker)** | 8400 | vLLM with a small model | Background note extraction + tool orchestration |
-| **Functionary Router** | 8001 | llama.cpp `server` | Request classification before agent loop |
-| **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
-| **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
-| **Embedding Server** | 8200 | vLLM or TEI with embedding model | Generates 4096-dim vectors for semantic search |
-| **SearXNG** | 8888 | `searxng/searxng` | Web search for the agent |
-| **Memgraph** | 7687 | `memgraph/memgraph` | Code knowledge graph |
-| **Git Server** | — | GitLab, GitHub, Gitea, etc. | Source code for workspace-sync to clone and index |
 
 > **Git Server**: Analects needs access to a git server so workspace-sync can clone your repositories into `/workspace/`. This can be a self-hosted GitLab instance, GitHub, Gitea, or any git server accessible over HTTP/HTTPS. Configure credentials and repos in `config.toml` — see [Workspace Sync & GitLab Integration](#workspace-sync--gitlab-integration).
 
