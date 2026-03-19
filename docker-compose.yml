@@ -1,6 +1,6 @@
-# CCA Full Stack — Self-Contained Deployment
+# Analects Full Stack — Self-Contained Deployment
 #
-# Brings up all 11 containers for the Confucius Code Agent stack.
+# Brings up all 11 containers for the Analects stack.
 #
 # Prerequisites:
 #   - Main vLLM inference server running separately (see README.md)

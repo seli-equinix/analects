@@ -1,14 +1,14 @@
-# Confucius Code Agent (CCA) - Development & Runtime Container
+# Analects - Agent-as-a-Model Development & Runtime Container
 # Multi-architecture (amd64, arm64) - targets DGX Spark1 (ARM64)
 #
-# Build:  docker compose -f cca-compose.yml build
-# Run:    docker compose -f cca-compose.yml run --rm cca
-# Shell:  docker compose -f cca-compose.yml run --rm cca bash
+# Build:  docker compose build cca
+# Run:    docker compose up -d cca
+# Shell:  docker compose run --rm cca bash
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="Confucius Code Agent"
-LABEL org.opencontainers.image.description="Meta's CCA agent framework for AI software engineering"
-LABEL org.opencontainers.image.source="https://github.com/seli-equinix/cca-swebench"
+LABEL org.opencontainers.image.title="Analects"
+LABEL org.opencontainers.image.description="Agent-as-a-Model for code — built on Meta/Harvard's Confucius framework"
+LABEL org.opencontainers.image.source="https://github.com/seli-equinix/analects"
 LABEL org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONUNBUFFERED=1 \

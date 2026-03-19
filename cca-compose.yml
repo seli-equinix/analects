@@ -1,4 +1,4 @@
-# Confucius Code Agent (CCA) Stack
+# Analects Stack
 # Deploy via: docker compose -f cca-compose.yml up -d cca
 #
 # Configuration:
@@ -14,12 +14,12 @@
 #   SWE-bench:   docker compose -f cca-compose.yml run --rm cca-swebench
 
 services:
-  # CCA HTTP server (Agent-as-a-Model Endpoint)
+  # Analects HTTP server (Agent-as-a-Model Endpoint)
   cca:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${CCA_IMAGE:-hellohal2064/confucius-code-agent:latest}
+    image: ${CCA_IMAGE:-hellohal2064/analects:latest}
     container_name: cca
     env_file:
       - .env
