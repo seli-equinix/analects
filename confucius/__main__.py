@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
 
-"""CCA HTTP Server entry point.
+"""Analects HTTP Server entry point.
 
 Usage:
     confucius --port 8500
@@ -13,7 +13,7 @@ import logging
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CCA HTTP Server")
+    parser = argparse.ArgumentParser(description="Analects HTTP Server")
     parser.add_argument("--host", default="0.0.0.0", help="Bind address")
     parser.add_argument("--port", type=int, default=8500, help="Port")
     parser.add_argument("--workers", type=int, default=1, help="Uvicorn workers")
