@@ -339,7 +339,13 @@ async function qdrantDelete(collection, ids) {
 // ── Data fetching ──
 
 async function fetchPipelineStatus() {
-  const pipelines = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=20`);
+  // Fetch enough pipelines to cover all tests (21 tests × ~10 history = 210).
+  // GitLab max per_page is 100, so fetch 2 pages.
+  let pipelines = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100`);
+  try {
+    const page2 = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100&page=2`);
+    if (page2.length) pipelines = pipelines.concat(page2);
+  } catch(e) {}
   const status = {};
   for (const p of pipelines) {
     try {
