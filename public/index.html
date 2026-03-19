@@ -339,17 +339,29 @@ async function qdrantDelete(collection, ids) {
 // ── Data fetching ──
 
 async function fetchPipelineStatus() {
-  // Fetch enough pipelines to cover all tests (21 tests × ~10 history = 210).
-  // GitLab max per_page is 100, so fetch 2 pages.
-  let pipelines = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100`);
+  // Fetch pipelines (up to 200 across 2 pages)
+  let pipelines = [];
   try {
+    pipelines = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100`);
     const page2 = await gitlabGet(`/projects/${PROJECT_ID}/pipelines?per_page=100&page=2`);
-    if (page2.length) pipelines = pipelines.concat(page2);
-  } catch(e) {}
+    if (page2 && page2.length) pipelines = pipelines.concat(page2);
+  } catch(e) {
+    console.error('Failed to fetch pipelines:', e);
+    return {};
+  }
+
+  // Fetch jobs for all pipelines in parallel (10 at a time to avoid flooding)
   const status = {};
-  for (const p of pipelines) {
-    try {
-      const jobs = await gitlabGet(`/projects/${PROJECT_ID}/pipelines/${p.id}/jobs`);
+  const batchSize = 10;
+  for (let i = 0; i < pipelines.length; i += batchSize) {
+    const batch = pipelines.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      batch.map(p => gitlabGet(`/projects/${PROJECT_ID}/pipelines/${p.id}/jobs`))
+    );
+    results.forEach((result, idx) => {
+      if (result.status !== 'fulfilled') return;
+      const jobs = result.value;
+      const p = batch[idx];
       for (const j of jobs) {
         const testName = j.name.replace('test-','');
         if (!status[testName]) status[testName] = [];
@@ -359,7 +371,7 @@ async function fetchPipelineStatus() {
           web_url: j.web_url, allow_failure: j.allow_failure
         });
       }
-    } catch(e) {}
+    });
   }
   for (const name in status) {
     status[name].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
