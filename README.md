@@ -229,16 +229,11 @@ These must be running before Analects starts:
 | **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
 | **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
 | **Embedding Server** | 8200 | vLLM or TEI with embedding model | Generates 4096-dim vectors for semantic search |
+| **SearXNG** | 8888 | `searxng/searxng` | Web search for the agent |
+| **Memgraph** | 7687 | `memgraph/memgraph` | Code knowledge graph |
+| **Git Server** | — | GitLab, GitHub, Gitea, etc. | Source code for workspace-sync to clone and index |
 
-### Optional Services
-
-Analects degrades gracefully without these:
-
-| Service | Port | Purpose | What Happens Without It |
-|---------|------|---------|------------------------|
-| **SearXNG** | 8888 | Web search | `web_search` tool unavailable |
-| **Memgraph** | 7687 | Code knowledge graph | Falls back to basic code search |
-| **Phoenix** | 4317 | OpenTelemetry trace collection | No tracing (set `phoenix_endpoint = ""`) |
+> **Git Server**: Analects needs access to a git server so workspace-sync can clone your repositories into `/workspace/`. This can be a self-hosted GitLab instance, GitHub, Gitea, or any git server accessible over HTTP/HTTPS. Configure credentials and repos in `config.toml` — see [Workspace Sync & GitLab Integration](#workspace-sync--gitlab-integration).
 
 ### Reference Deployment: Two DGX Sparks
 
