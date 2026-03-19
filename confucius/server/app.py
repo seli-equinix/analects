@@ -1065,12 +1065,25 @@ async def _handle_chat_completions(
                                     ))
                                     if session.identified:
                                         route_name = route.expert.value if route else "coder"
+                                        logger.info(
+                                            "Firing FactExtractor[%s] for user %s (session=%s)",
+                                            route_name, user.user_id, session_id,
+                                        )
                                         asyncio.create_task(note_observer.extract_user_facts(
                                             user_message, user.user_id, session_id,
                                             user_session_mgr, route=route_name,
                                         ))
+                                    else:
+                                        logger.info(
+                                            "Skipping FactExtractor: session not identified "
+                                            "(session=%s, user=%s)",
+                                            session_id, user.user_id,
+                                        )
                                 except Exception:
-                                    logger.debug("Failed to fire note observer in finally", exc_info=True)
+                                    logger.warning(
+                                        "Failed to fire note observer/fact extractor in finally",
+                                        exc_info=True,
+                                    )
                             await io.signal_done()
 
             agent_task = asyncio.create_task(run_agent())
@@ -1155,12 +1168,25 @@ async def _handle_chat_completions(
                                 ))
                                 if session.identified:
                                     route_name = route.expert.value if route else "coder"
+                                    logger.info(
+                                        "Firing FactExtractor[%s] for user %s (session=%s)",
+                                        route_name, user.user_id, session_id,
+                                    )
                                     asyncio.create_task(note_observer.extract_user_facts(
                                         user_message, user.user_id, session_id,
                                         user_session_mgr, route=route_name,
                                     ))
+                                else:
+                                    logger.info(
+                                        "Skipping FactExtractor: session not identified "
+                                        "(session=%s, user=%s)",
+                                        session_id, user.user_id,
+                                    )
                             except Exception:
-                                logger.debug("Failed to fire note observer in finally", exc_info=True)
+                                logger.warning(
+                                    "Failed to fire note observer/fact extractor in finally",
+                                    exc_info=True,
+                                )
 
                     if agent_error:
                         return JSONResponse(
