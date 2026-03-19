@@ -216,6 +216,32 @@ class WorkspaceIndexer:
 
         await asyncio.gather(*[_index_one(f) for f in all_files])
 
+        # Phase 2: Resolve cross-file CALLS edges in Memgraph.
+        # Must run AFTER all files are indexed so every Function node exists.
+        graph = self._get_graph()
+        if graph and stats["indexed"] > 0:
+            indexed_projects = set()
+            if project_map:
+                indexed_projects = set(project_map.values())
+            else:
+                # Infer projects from the paths
+                for fpath in all_files:
+                    proj = _detect_project(fpath, paths[0] if paths else "")
+                    indexed_projects.add(proj)
+
+            for proj_name in sorted(indexed_projects):
+                try:
+                    resolve_stats = await graph.resolve_project_calls(proj_name)
+                    logger.info(
+                        "Resolved call graph edges for '%s': %s",
+                        proj_name, resolve_stats,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to resolve call edges for '%s': %s",
+                        proj_name, e,
+                    )
+
         # Detect and clean up files deleted from disk but still in Qdrant
         if not force and existing_hashes:
             deleted = await self._reconcile_deleted(all_files, existing_hashes)

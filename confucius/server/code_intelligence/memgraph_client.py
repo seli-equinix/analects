@@ -204,7 +204,10 @@ class MemgraphClient:
                     )
                     counts["functions"] += 1
 
-                    # CALLS edges
+                    # Store pending calls as a list property on the Function node.
+                    # CALLS edges are resolved AFTER all files are indexed via
+                    # resolve_project_calls() — this avoids ordering bugs where
+                    # the callee's file hasn't been indexed yet.
                     calls = func.get("calls", [])
                     if isinstance(calls, str):
                         import json
@@ -213,52 +216,20 @@ class MemgraphClient:
                         except (json.JSONDecodeError, TypeError):
                             calls = []
 
-                    for raw_callee in calls:
-                        callee = _normalize_callee_name(raw_callee, language)
-                        if not callee or callee == func_name:
-                            continue
-
-                        result = await session.run(
+                    normalized_calls = [
+                        c for raw in calls
+                        if (c := _normalize_callee_name(raw, language))
+                        and c != func_name
+                    ]
+                    if normalized_calls:
+                        await session.run(
                             """
-                            MATCH (existing:Function {name: $callee_name})
-                            WHERE existing.file_path IS NOT NULL
-                              AND existing.file_path <> ''
-                              AND existing.project = $project
-                            RETURN existing.qualified_name AS qname
-                            LIMIT 1
+                            MATCH (fn:Function {qualified_name: $qname})
+                            SET fn._pending_calls = $calls
                             """,
-                            callee_name=callee, project=project,
+                            qname=qualified_name, calls=normalized_calls,
                         )
-                        record = await result.single()
-
-                        if record:
-                            await session.run(
-                                """
-                                MATCH (caller:Function {qualified_name: $caller_qname})
-                                MATCH (callee:Function {qualified_name: $callee_qname})
-                                MERGE (caller)-[:CALLS]->(callee)
-                                """,
-                                caller_qname=qualified_name,
-                                callee_qname=record["qname"],
-                            )
-                        else:
-                            stub_qname = f"unresolved::{callee}"
-                            await session.run(
-                                """
-                                MATCH (caller:Function {qualified_name: $caller_qname})
-                                MERGE (callee:Function {qualified_name: $stub_qname})
-                                ON CREATE SET callee.name = $callee_name,
-                                              callee.language = '',
-                                              callee.file_path = '',
-                                              callee.project = $project
-                                MERGE (caller)-[:CALLS]->(callee)
-                                """,
-                                caller_qname=qualified_name,
-                                callee_name=callee,
-                                stub_qname=stub_qname,
-                                project=project,
-                            )
-                        counts["calls"] += 1
+                        counts["calls"] += len(normalized_calls)
 
                     # IMPORTS edges
                     imports = func.get("imports", [])
@@ -317,6 +288,94 @@ class MemgraphClient:
 
         except Exception as e:
             logger.error("Graph indexing error for %s: %s", file_path, e)
+            return {"error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Phase 2: Resolve pending CALLS edges for an entire project
+    # ------------------------------------------------------------------
+
+    async def resolve_project_calls(self, project: str) -> Dict[str, int]:
+        """Resolve all CALLS edges for a project in one pass.
+
+        Called AFTER all files in the project have been indexed.
+        Reads ``_pending_calls`` list properties from Function nodes,
+        matches callee names to real Function nodes within the same
+        project, and creates CALLS edges.  Handles duplicate function
+        names by creating edges to ALL matching definitions.
+
+        This replaces the old per-file call resolution which was broken
+        by file indexing order and LIMIT 1 on duplicate names.
+        """
+        if not self._driver:
+            return {"error": "not connected"}
+
+        try:
+            async with self._driver.session() as session:
+                # 1. Delete all existing CALLS edges for this project
+                #    (they'll be recreated from _pending_calls)
+                result = await session.run(
+                    """
+                    MATCH (caller:Function {project: $project})-[r:CALLS]->()
+                    DELETE r
+                    RETURN count(r) AS deleted
+                    """,
+                    project=project,
+                )
+                record = await result.single()
+                deleted = record["deleted"] if record else 0
+
+                # 2. Resolve pending calls → CALLS edges.
+                #    For each caller, UNWIND its _pending_calls list and
+                #    match each callee name to ALL real Function nodes in
+                #    the project (not stubs).  MERGE is idempotent.
+                result = await session.run(
+                    """
+                    MATCH (caller:Function {project: $project})
+                    WHERE caller._pending_calls IS NOT NULL
+                    UNWIND caller._pending_calls AS callee_name
+                    WITH caller, callee_name
+                    MATCH (callee:Function {name: callee_name, project: $project})
+                    WHERE callee.file_path IS NOT NULL AND callee.file_path <> ''
+                    MERGE (caller)-[:CALLS]->(callee)
+                    RETURN count(*) AS edges_created
+                    """,
+                    project=project,
+                )
+                record = await result.single()
+                created = record["edges_created"] if record else 0
+
+                # 3. Clean up _pending_calls properties
+                await session.run(
+                    """
+                    MATCH (fn:Function {project: $project})
+                    WHERE fn._pending_calls IS NOT NULL
+                    REMOVE fn._pending_calls
+                    """,
+                    project=project,
+                )
+
+                # 4. Clean up orphaned unresolved stubs from old indexing
+                await session.run(
+                    """
+                    MATCH (stub:Function)
+                    WHERE stub.qualified_name STARTS WITH 'unresolved::'
+                      AND stub.project = $project
+                    DETACH DELETE stub
+                    """,
+                    project=project,
+                )
+
+                logger.info(
+                    "resolve_project_calls(%s): deleted %d old edges, "
+                    "created %d new edges",
+                    project, deleted, created,
+                )
+                return {"deleted": deleted, "created": created}
+
+        except Exception as e:
+            logger.error(
+                "resolve_project_calls error for %s: %s", project, e,
+            )
             return {"error": str(e)}
 
     # ------------------------------------------------------------------
