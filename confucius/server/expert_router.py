@@ -1581,7 +1581,28 @@ def _guard_clarify_has_task(
             decision.estimated_steps = 3
         return decision
 
+    if _DOCUMENT_PATTERNS.search(user_message):
+        logger.warning(
+            "Router guard: overriding clarify→coder for document request: %s",
+            user_message[:80],
+        )
+        decision.expert = ExpertType.CODER
+        decision.clarification_question = ""
+        if decision.estimated_steps < 3:
+            decision.estimated_steps = 3
+        return decision
+
     return decision
+
+
+# Patterns for document operations — need coder's document tools
+_DOCUMENT_PATTERNS = re.compile(
+    r"(?i)\b("
+    r"document|upload.*doc|store.*note|save.*doc"
+    r"|search.*doc|architecture.*note|knowledge"
+    r"|my\s+documents|stored\s+doc|list.*doc"
+    r")\b",
+)
 
 
 # Patterns that reference a specific project or codebase — need code search tools

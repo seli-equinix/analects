@@ -955,6 +955,30 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                             ])
                             continue
 
+                    # Check for refusal disguised as helpfulness:
+                    # "I don't have access to X" when tools are available.
+                    last_response = self._get_last_assistant_text(context)
+                    if last_response and self._is_refusal(last_response):
+                        nudge_msg = (
+                            "You DO have access to the user's data via your "
+                            "tools. Use search_notes, get_user_context, or "
+                            "read_memory to find stored information. Do NOT "
+                            "tell the user you lack access — check your tools "
+                            "first and use them."
+                        )
+                        logger.info(
+                            "Dual-model: detected refusal — corrective nudge "
+                            "to use tools",
+                        )
+                        context.memory_manager.add_messages([
+                            CfMessage(
+                                type=cf.MessageType.HUMAN,
+                                content=nudge_msg,
+                                additional_kwargs={"__synthetic__": True},
+                            )
+                        ])
+                        continue
+
                     # Build a corrective nudge: extract what the model
                     # described and tell it exactly which tool to use.
                     described = self._extract_described_tool_call(context)
@@ -1296,6 +1320,34 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
 
         # Quality gate: check for errors after processing (8B→80B)
         self._update_quality_gate()
+
+    # Refusal detection patterns — LLM says it can't do something
+    # when it actually has tools to do it.
+    _REFUSAL_PATTERNS = re.compile(
+        r"(?i)("
+        r"I don.t have access"
+        r"|I can.t access"
+        r"|I.m unable to access"
+        r"|I do not have access"
+        r"|I cannot access"
+        r"|I.m not able to"
+        r"|I don.t have the ability"
+        r"|I lack access"
+        r"|no access to (your|the|previous)"
+        r"|cannot retrieve (your|the|previous)"
+        r")",
+    )
+
+    def _get_last_assistant_text(self, context: AnalectRunContext) -> str:
+        """Get the text content of the last assistant message."""
+        for msg in reversed(context.memory_manager.memory.messages):
+            if msg.type == cf.MessageType.AI:
+                return msg.content if isinstance(msg.content, str) else ""
+        return ""
+
+    def _is_refusal(self, text: str) -> bool:
+        """Check if the text contains a refusal pattern."""
+        return bool(self._REFUSAL_PATTERNS.search(text))
 
     def _extract_described_tool_call(
         self, context: AnalectRunContext,

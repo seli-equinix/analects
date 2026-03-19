@@ -62,15 +62,16 @@ You are a coding session observer. Extract key insights from this conversation.
 
 Return ONLY a JSON array of notes. Each note has:
 - "content": The insight (1-3 sentences, specific and actionable)
-- "type": One of "insight", "pattern", "pitfall", "technique", "fact"
+- "type": One of "insight", "pattern", "pitfall", "technique", "fact", "preference"
 - "tags": List of relevant keywords
 
 Rules:
-- Only extract non-obvious insights that required effort to discover
-- Skip trivial observations (standard patterns, documented behavior)
-- 0-5 notes per conversation (empty array [] if nothing noteworthy)
-- Be specific — include file names, function names, error messages
-- If the user revealed personal/project info, create a "fact" type note
+- Extract technical insights that required effort to discover
+- Extract user preferences, style choices, and workflow habits ("preference" type)
+- Extract personal/project facts: names, tools, employers, project details ("fact" type)
+- Skip routine API usage or well-documented standard library patterns
+- 0-5 notes per conversation (empty array [] if truly nothing noteworthy)
+- Be specific — include file names, function names, error messages when available
 
 Return valid JSON only, no markdown fences."""
 
@@ -376,8 +377,9 @@ class NoteObserver:
                             )
 
                     if not notes:
-                        logger.debug(
-                            "NoteObserver: no notes extracted for session %s", session_id
+                        logger.info(
+                            "NoteObserver: no notes extracted for session %s (%d messages)",
+                            session_id, len(messages),
                         )
                         span.set_attribute("cca.note.status", "no_notes")
                         return
