@@ -304,21 +304,89 @@ This means Analects learns from past sessions and gets better at helping you ove
 8. Background: Note-taker extracts insights → Qdrant
 ```
 
-### Workspace Sync
+### Workspace Sync & GitLab Integration
 
-The `workspace-sync` container automatically clones and pulls repositories from GitLab into `/workspace/`, keeping the agent's code context up to date. Key features:
+The `workspace-sync` container keeps the agent's code context up to date by cloning and syncing repositories from any git server (GitLab, GitHub, etc.) into `/workspace/`. The agent can then search, read, and work on your code.
 
-- **Hot-reload config** — add or remove repos in `config.toml` without restarting
+**Key features:**
+- **Hot-reload config** — add or remove repos in `config.toml` without restarting any container
 - **Configurable sync interval** (default: 60s)
-- **Automatic reindexing** — triggers workspace indexer after sync
-- **Stale data cleanup** — removes repos that are no longer in config
+- **Automatic reindexing** — triggers Qdrant + Memgraph indexer after each sync
+- **Stale data cleanup** — removes repos from `/workspace/` and indexes when removed from config
+- **Two repo types**: `source` (read-only, periodic pull) and `migration` (Analects can push commits)
 
-Configure repos in `config.toml`:
+#### Step 1: Set credentials in `.env`
+
+```env
+# GitLab (or any git server)
+GITLAB_PASS=your-gitlab-password
+
+# GitHub (optional — for syncing GitHub repos)
+# GITHUB_TOKEN=ghp_your_token_here
+```
+
+#### Step 2: Configure repos in `config.toml`
 
 ```toml
 [workspace]
-source_projects = ["root/my-project", "root/another-project"]
-migration_projects = ["root/my-migration"]
+sync_interval = 60                      # seconds between git pulls
+
+# Credentials — ${VAR} references are resolved from .env at runtime
+[[workspace.credentials]]
+id = "gitlab-local"
+url = "http://your-gitlab-host:8929"    # your GitLab instance
+user = "root"
+token = "${GITLAB_PASS}"                # references GITLAB_PASS from .env
+
+# Optional: add more git servers
+# [[workspace.credentials]]
+# id = "github"
+# url = "https://github.com"
+# user = "your-username"
+# token = "${GITHUB_TOKEN}"
+
+# Repositories to sync
+[[workspace.repos]]
+name = "my-project"                     # folder name in /workspace/
+repo = "root/my-project"               # <user>/<repo> path on the git server
+credential = "gitlab-local"             # references the credential block above
+type = "source"                         # "source" = read-only, "migration" = push access
+branch = "main"
+
+[[workspace.repos]]
+name = "my-project-migration"
+repo = "root/my-project-migration"
+credential = "gitlab-local"
+type = "migration"                      # Analects can commit and push to this repo
+branch = "main"
+```
+
+#### Step 3: Code Intelligence (automatic)
+
+Once repos are synced, the indexer automatically:
+1. Indexes all files into **Qdrant** (`codebase_files` collection) for semantic code search
+2. Builds a **Memgraph** knowledge graph of code relationships
+3. Makes code searchable via the agent's `code_search` and `file_search` tools
+
+Configure indexer behavior in `config.toml`:
+
+```toml
+[indexer]
+paths = ["/workspace"]
+sync_interval = 300                     # seconds between re-index cycles
+collection = "codebase_files"
+skip_dirs = [".git", "node_modules", "__pycache__", ".venv"]
+```
+
+#### How it works end-to-end
+
+```
+1. You push code to GitLab/GitHub
+2. workspace-sync pulls changes every 60s → /workspace/my-project/
+3. Indexer re-indexes changed files → Qdrant vectors + Memgraph graph
+4. User asks Analects: "How does the auth module work?"
+5. Agent searches indexed code, reads files, and answers with full context
+6. For migration repos: agent can edit files and push commits back
 ```
 
 ---
@@ -329,9 +397,9 @@ All configuration lives in three files (none tracked by git — copy from `*.exa
 
 | File | Purpose |
 |------|---------|
-| `config.toml` | Models, providers, service URLs, router settings, workspace repos |
+| `config.toml` | Models, providers, service URLs, router settings, workspace repos, indexer |
 | `infrastructure.toml` | Cluster topology for infra expert (SSH hosts, services) |
-| `.env` | Secrets: Redis password, API keys, GitLab tokens |
+| `.env` | Secrets: Redis password, API keys, GitLab/GitHub tokens |
 
 ### Switching Providers
 
@@ -351,6 +419,10 @@ Set in `.env` (see `.env.example` for full list):
 OPENAI_API_KEY=dummy                    # "dummy" for local vLLM
 REDIS_URL=redis://:password@host:6379/0
 CCA_WORKSPACE=/path/to/your/code
+
+# Git server credentials (for workspace-sync)
+GITLAB_PASS=your-gitlab-password
+# GITHUB_TOKEN=ghp_your_token_here
 ```
 
 ---
