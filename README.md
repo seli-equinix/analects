@@ -1,10 +1,10 @@
-# Analects the Agent-as-a-model based on Confucius Code Agent (CCA)
+# Analects
+
+**Agent-as-a-Model for code** — built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398).
 
 An AI coding agent that runs as an **Agent-as-a-Model** HTTP server. Send it OpenAI-compatible `/v1/chat/completions` requests, and it runs a full agent loop internally — reading files, executing commands, editing code, searching the web, and managing long-term memory — then returns the result as a standard chat completion.
 
-Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398), extended with expert routing, user awareness, code intelligence, and optimized for local inference on NVIDIA DGX Spark.
-
-> **Reference deployment**: This project runs on two [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) units (Grace Blackwell GB10 SoC, 128GB unified memory each). The architecture is designed around having a large inference model on one Spark and supporting services on the other. It can be adapted to any vLLM-compatible setup — see [Adapting to Your Hardware](#adapting-to-your-hardware).
+> **Reference deployment**: This project runs on two [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) units (Grace Blackwell GB10 SoC, 128GB unified memory each). It can be adapted to any vLLM-compatible setup — see [Adapting to Your Hardware](#adapting-to-your-hardware).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -14,7 +14,7 @@ Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398),
                            │ POST /v1/chat/completions
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  CCA Server (:8500)                              [Spark1]           │
+│  Analects Server (:8500)                            [Spark1]        │
 │                                                                     │
 │  ┌─────────────┐    ┌──────────────────────────────────────────┐   │
 │  │ Expert       │───>│ Agent Loop (DualModelOrchestrator)       │   │
@@ -39,9 +39,9 @@ Built on [Meta/Harvard's Confucius framework](https://arxiv.org/abs/2512.10398),
 
 ## Why Agent-as-a-Model?
 
-Most AI coding tools require specific IDE plugins or CLI clients. CCA takes a different approach: it exposes the full agent as a standard OpenAI-compatible model endpoint.
+Most AI coding tools require specific IDE plugins or CLI clients. Analects takes a different approach: it exposes the full agent as a standard OpenAI-compatible model endpoint.
 
-This means **any tool that can talk to the OpenAI API can use CCA** — Continue.dev, Cursor, custom scripts, or a simple `curl`. The agent loop (planning, tool use, iteration) happens server-side. The client just sees a chat completion response.
+This means **any tool that can talk to the OpenAI API can use Analects** — Continue.dev, Cursor, custom scripts, or a simple `curl`. The agent loop (planning, tool use, iteration) happens server-side. The client just sees a chat completion response.
 
 **What happens when you send a message:**
 1. Expert Router classifies your request (coder, infrastructure, search, etc.)
@@ -56,111 +56,30 @@ This means **any tool that can talk to the OpenAI API can use CCA** — Continue
 - **Two-LLM architecture** — large model (coder) + small model (note-taker) for cost-efficient operation
 - **User awareness** — identifies users across sessions, stores preferences and facts in Qdrant
 - **Code intelligence** — workspace indexing, semantic code search, knowledge graph (Memgraph)
+- **Workspace sync** — auto-clones and syncs repos from GitLab with hot-reload config (no restart needed)
 - **Long-term memory** — note-taker observes every session and persists insights to vector DB
 - **Web search** — SearXNG integration for real-time information
 - **Phoenix tracing** — full OpenTelemetry observability for every agent run
 - **TOML config** — switch between local vLLM and cloud providers (Azure, Bedrock, Google) with a config change
-- **Docker-first** — single `docker compose up` to run the whole stack
-
----
-
-## Infrastructure Requirements
-
-CCA is not just one container — it's a stack of services that work together. Here's everything you need.
-
-### Required Models
-
-| Model | Purpose | Size | Where It Runs |
-|-------|---------|------|---------------|
-| **Qwen3.5-35B-A3B-FP8** | Coder, planner, reviewer, tester, search | ~20GB | vLLM on Spark2 (:8000) |
-| **Qwen3-8B-FP8** (or Qwen3.5-9B) | Note-taker, tool orchestrator | ~9GB | vLLM on Spark1 (:8400) |
-| **Qwen3-Embedding-8B** | Semantic search embeddings (4096 dims) | ~8GB | Embedding server on Spark1 (:8200) |
-| **functionary-small-v3.2.Q4_0.gguf** | Expert router (request classification) | ~4GB | llama.cpp on Spark1 (:8001) |
-
-> **Note**: Any OpenAI-compatible models work. The Qwen models listed above are what the reference deployment uses. You can substitute with any model that supports tool calling.
-
-### Required Services
-
-These must be running before CCA starts:
-
-| Service | Port | Container/Image | Purpose |
-|---------|------|-----------------|---------|
-| **vLLM (coder)** | 8000 | vLLM with your large model | Primary LLM for all agent work |
-| **vLLM (note-taker)** | 8400 | vLLM with a small model | Background note extraction + tool orchestration |
-| **Functionary Router** | 8001 | llama.cpp `server` | Request classification before agent loop |
-| **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
-| **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
-| **Embedding Server** | 8200 | vLLM or TEI with embedding model | Generates 4096-dim vectors for semantic search |
-
-### Optional Services
-
-CCA degrades gracefully without these:
-
-| Service | Port | Purpose | What Happens Without It |
-|---------|------|---------|------------------------|
-| **SearXNG** | 8888 | Web search | `web_search` tool unavailable |
-| **Memgraph** | 7687 | Code knowledge graph | Falls back to basic code search |
-| **Phoenix** | 4317 | OpenTelemetry trace collection | No tracing (set `phoenix_endpoint = ""`) |
-
-### Reference Deployment: Two DGX Sparks
-
-The reference deployment runs across two NVIDIA DGX Spark units:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Spark1 (128GB unified memory)                                  │
-│                                                                 │
-│  CCA Server ──────────────── :8500  (agent HTTP endpoint)       │
-│  Functionary Router ──────── :8001  (llama.cpp, ~4GB)           │
-│  vLLM Note-Taker ────────── :8400  (Qwen3-8B, ~9GB)            │
-│  Embedding Server ────────── :8200  (Qwen3-Embedding-8B, ~8GB) │
-│  Redis ───────────────────── :6379  (sessions, facts)           │
-│  Qdrant ──────────────────── :6333  (vector DB)                 │
-│  SearXNG ─────────────────── :8888  (web search)                │
-│  Memgraph ────────────────── :7687  (knowledge graph)           │
-│                                                                 │
-│  GPU memory: ~21GB models + ~25GB KV caches                     │
-│  Remaining: ~82GB available for OS/containers                   │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│  Spark2 (128GB unified memory)                                  │
-│                                                                 │
-│  vLLM (coder) ────────────── :8000  (Qwen3.5-35B-A3B-FP8)     │
-│                                                                 │
-│  GPU memory: ~20GB model + ~90GB KV cache                       │
-│  Dedicated to inference — nothing else runs here                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Adapting to Your Hardware
-
-CCA doesn't require DGX Spark hardware. Any setup that can serve OpenAI-compatible endpoints works:
-
-- **Single powerful GPU** (80GB+ VRAM): Run all models on one machine, adjust ports in `config.toml`
-- **Cloud inference**: Set `[active] coder = "cloud"` and configure Azure/Bedrock/Google providers
-- **Mixed**: Local small model for note-taker, cloud API for coder
-- **CPU-only router**: Functionary runs fine on CPU via llama.cpp (slower but works)
-
-The only hard requirements are Redis and Qdrant — everything else is configurable via `config.toml`.
+- **Self-contained stack** — single `./setup.sh setup` + `docker compose up -d` runs all 11 containers
+- **Production-grade routing** — smart message truncation, data block stripping, configurable timeouts
 
 ---
 
 ## Quick Start
 
-### 1. Clone and configure
+### 1. Clone and setup
 
 ```bash
-git clone https://github.com/seli-equinix/confucius-code-agent.git
-cd confucius-code-agent
+git clone https://github.com/seli-equinix/analects.git
+cd analects
 
-# Copy example configs
-cp config.toml.example config.toml
-cp infrastructure.toml.example infrastructure.toml
-cp .env.example .env
+# First time: checks prereqs, creates config files, pulls Docker images
+./setup.sh setup
 
-# Edit config.toml with your vLLM endpoint, Redis, Qdrant URLs
-# Edit .env with your secrets (Redis password, API keys)
+# Edit configs with your values
+nano .env             # Set REDIS_PASSWORD, MODELS_DIR, VLLM_URL
+nano config.toml      # Set main vLLM URL in [providers.local.coder] base_url
 ```
 
 ### 2. Configure your LLM backend
@@ -229,13 +148,6 @@ provider = "bedrock"
 ### 3. Start the full stack
 
 ```bash
-# First time: checks prereqs, creates config files, pulls Docker images
-./setup.sh setup
-
-# Edit configs with your values
-nano .env             # Set REDIS_PASSWORD, MODELS_DIR, VLLM_URL
-nano config.toml      # Set main vLLM URL in [providers.local.coder] base_url
-
 # Start all 11 containers
 docker compose up -d
 
@@ -243,13 +155,11 @@ docker compose up -d
 ./setup.sh status
 ```
 
-This starts Redis, Qdrant, Memgraph, SearXNG, Embedding server, Note-taker, Functionary router, CCA, and workspace-sync — all configured via `.env` and `config.toml`.
+This starts Redis, Qdrant, Memgraph, SearXNG, Embedding server, Note-taker, Functionary router, Analects, and workspace-sync — all configured via `.env` and `config.toml`.
 
-> **Note**: The main vLLM inference server (Qwen3.5-35B-A3B-FP8 on port 8000) runs on a separate machine. Set `VLLM_URL` in `.env` to point to it.
+> **Note**: The main vLLM inference server (coder model on port 8000) runs on a separate machine. Set `VLLM_URL` in `.env` to point to it.
 
 ### 4. Test it
-
-> If you need to manage the stack: `./setup.sh stop`, `./setup.sh logs [service]`, `./setup.sh status`
 
 ```bash
 # Health check
@@ -261,13 +171,96 @@ curl http://localhost:8500/v1/models
 # Send a coding task
 curl -X POST http://localhost:8500/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"cca","messages":[{"role":"user","content":"List all Python files in /workspace and summarize what they do"}]}'
+  -d '{"model":"analects","messages":[{"role":"user","content":"List all Python files in /workspace and summarize what they do"}]}'
 
 # Stream a response
 curl -X POST http://localhost:8500/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"cca","messages":[{"role":"user","content":"Hello, what can you help me with?"}],"stream":true}'
+  -d '{"model":"analects","messages":[{"role":"user","content":"Hello, what can you help me with?"}],"stream":true}'
 ```
+
+Manage the stack: `./setup.sh stop`, `./setup.sh logs [service]`, `./setup.sh status`
+
+---
+
+## Infrastructure Requirements
+
+Analects is not just one container — it's a stack of services that work together.
+
+### Required Models
+
+| Model | Purpose | Size | Where It Runs |
+|-------|---------|------|---------------|
+| **Qwen3.5-35B-A3B-FP8** | Coder, planner, reviewer, tester, search | ~20GB | vLLM on Spark2 (:8000) |
+| **Qwen3-8B-FP8** (or Qwen3.5-9B) | Note-taker, tool orchestrator | ~9GB | vLLM on Spark1 (:8400) |
+| **Qwen3-Embedding-8B** | Semantic search embeddings (4096 dims) | ~8GB | Embedding server on Spark1 (:8200) |
+| **functionary-small-v3.2.Q4_0.gguf** | Expert router (request classification) | ~4GB | llama.cpp on Spark1 (:8001) |
+
+> **Note**: Any OpenAI-compatible models work. The Qwen models listed above are what the reference deployment uses. You can substitute with any model that supports tool calling.
+
+### Required Services
+
+These must be running before Analects starts:
+
+| Service | Port | Container/Image | Purpose |
+|---------|------|-----------------|---------|
+| **vLLM (coder)** | 8000 | vLLM with your large model | Primary LLM for all agent work |
+| **vLLM (note-taker)** | 8400 | vLLM with a small model | Background note extraction + tool orchestration |
+| **Functionary Router** | 8001 | llama.cpp `server` | Request classification before agent loop |
+| **Redis** | 6379 | `redis:7-alpine` | Session state, critical facts, trajectories |
+| **Qdrant** | 6333 | `qdrant/qdrant:v1.14` | Vector DB for user profiles, code search, notes |
+| **Embedding Server** | 8200 | vLLM or TEI with embedding model | Generates 4096-dim vectors for semantic search |
+
+### Optional Services
+
+Analects degrades gracefully without these:
+
+| Service | Port | Purpose | What Happens Without It |
+|---------|------|---------|------------------------|
+| **SearXNG** | 8888 | Web search | `web_search` tool unavailable |
+| **Memgraph** | 7687 | Code knowledge graph | Falls back to basic code search |
+| **Phoenix** | 4317 | OpenTelemetry trace collection | No tracing (set `phoenix_endpoint = ""`) |
+
+### Reference Deployment: Two DGX Sparks
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Spark1 (128GB unified memory)                                  │
+│                                                                 │
+│  Analects Server ────────────── :8500  (agent HTTP endpoint)    │
+│  Workspace Sync ─────────────── auto   (GitLab repo sync)      │
+│  Functionary Router ──────── :8001  (llama.cpp, ~4GB)           │
+│  vLLM Note-Taker ────────── :8400  (Qwen3-8B, ~9GB)            │
+│  Embedding Server ────────── :8200  (Qwen3-Embedding-8B, ~8GB) │
+│  Redis ───────────────────── :6379  (sessions, facts)           │
+│  Qdrant ──────────────────── :6333  (vector DB)                 │
+│  SearXNG ─────────────────── :8888  (web search)                │
+│  Memgraph ────────────────── :7687  (knowledge graph)           │
+│                                                                 │
+│  GPU memory: ~21GB models + ~25GB KV caches                     │
+│  Remaining: ~82GB available for OS/containers                   │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Spark2 (128GB unified memory)                                  │
+│                                                                 │
+│  vLLM (coder) ────────────── :8000  (Qwen3.5-35B-A3B-FP8)     │
+│                                                                 │
+│  GPU memory: ~20GB model + ~90GB KV cache                       │
+│  Dedicated to inference — nothing else runs here                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Adapting to Your Hardware
+
+Analects doesn't require DGX Spark hardware. Any setup that can serve OpenAI-compatible endpoints works:
+
+- **Single powerful GPU** (80GB+ VRAM): Run all models on one machine, adjust ports in `config.toml`
+- **Cloud inference**: Set `[active] coder = "cloud"` and configure Azure/Bedrock/Google providers
+- **Mixed**: Local small model for note-taker, cloud API for coder
+- **CPU-only router**: Functionary runs fine on CPU via llama.cpp (slower but works)
+
+The only hard requirements are Redis and Qdrant — everything else is configurable via `config.toml`.
 
 ---
 
@@ -288,12 +281,12 @@ The router classifies each request and loads the appropriate tool set:
 
 ### Two-LLM Architecture
 
-CCA uses two models working together:
+Analects uses two models working together:
 
 - **Coder** (large model, e.g. 35B) — handles the actual agent work: planning, tool calling, code generation
 - **Note-taker** (small model, e.g. 8B) — observes every session in the background, extracts insights, and stores them in Qdrant for future context enrichment
 
-This means CCA learns from past sessions and gets better at helping you over time, without paying large-model costs for memory extraction.
+This means Analects learns from past sessions and gets better at helping you over time, without paying large-model costs for memory extraction.
 
 ### How a Request Flows
 
@@ -311,6 +304,23 @@ This means CCA learns from past sessions and gets better at helping you over tim
 8. Background: Note-taker extracts insights → Qdrant
 ```
 
+### Workspace Sync
+
+The `workspace-sync` container automatically clones and pulls repositories from GitLab into `/workspace/`, keeping the agent's code context up to date. Key features:
+
+- **Hot-reload config** — add or remove repos in `config.toml` without restarting
+- **Configurable sync interval** (default: 60s)
+- **Automatic reindexing** — triggers workspace indexer after sync
+- **Stale data cleanup** — removes repos that are no longer in config
+
+Configure repos in `config.toml`:
+
+```toml
+[workspace]
+source_projects = ["root/my-project", "root/another-project"]
+migration_projects = ["root/my-migration"]
+```
+
 ---
 
 ## Configuration
@@ -319,7 +329,7 @@ All configuration lives in three files (none tracked by git — copy from `*.exa
 
 | File | Purpose |
 |------|---------|
-| `config.toml` | Models, providers, service URLs, router settings |
+| `config.toml` | Models, providers, service URLs, router settings, workspace repos |
 | `infrastructure.toml` | Cluster topology for infra expert (SSH hosts, services) |
 | `.env` | Secrets: Redis password, API keys, GitLab tokens |
 
@@ -356,6 +366,7 @@ CCA_WORKSPACE=/path/to/your/code
 | `GET` | `/users` | List known user profiles |
 | `GET` | `/sessions` | List active agent sessions |
 | `GET` | `/stats` | Diagnostic statistics |
+| `POST` | `/workspace/reindex` | Trigger workspace reindexing |
 
 ---
 
@@ -365,14 +376,14 @@ CCA_WORKSPACE=/path/to/your/code
 
 ```bash
 # Start with source code mounted (no rebuild for code changes)
-docker compose -f cca-compose.yml --profile dev up -d cca-dev
+docker compose --profile dev up -d cca-dev
 ```
 
 ### Without Docker
 
 ```bash
-conda create -n confucius python=3.12 -y
-conda activate confucius
+conda create -n analects python=3.12 -y
+conda activate analects
 pip install -r requirements.txt
 
 # Run the server
@@ -382,30 +393,80 @@ python -m confucius --port 8500
 ### Project Structure
 
 ```
-confucius/
-├── __main__.py              # Entry point (confucius --port 8500)
-├── core/                    # Config, LLM managers, tracing, memory
-│   └── config.py            # TOML config loader (pydantic-validated)
-├── orchestrator/            # Agent loop, extension pipeline
-│   └── extensions/          # Tools: file edit, bash, planning, memory, ...
-├── analects/                # Expert configurations
-│   ├── code/                # Coder: system prompt, allowed commands
-│   └── infrastructure/      # Infra: SSH access, cluster topology
-├── server/                  # HTTP server (FastAPI)
-│   ├── app.py               # Routes, session handling, expert routing
-│   ├── expert_router.py     # Functionary-based request classifier
-│   ├── tool_groups.py       # Route → tool set mapping
-│   ├── note_observer.py     # Background note extraction (per-request)
-│   ├── code_intelligence/   # Workspace indexing, code search, knowledge graph
-│   └── user/                # User identification, profiles, memory
-└── lib/                     # Runtime bootstrap
+analects/
+├── setup.sh                 # Stack manager (setup, start, stop, status, logs)
+├── docker-compose.yml       # All 11 services in one file
+├── config.toml.example      # LLM providers, services, workspace repos
+├── .env.example             # Secrets template
+├── confucius/
+│   ├── __main__.py          # Entry point (confucius --port 8500)
+│   ├── core/                # Config (hot-reload), LLM managers, tracing, memory
+│   │   └── config.py        # TOML config loader (pydantic-validated, hot-reload)
+│   ├── orchestrator/        # Agent loop, extension pipeline
+│   │   └── extensions/      # Tools: file edit, bash, planning, memory, ...
+│   ├── analects/            # Expert configurations
+│   │   ├── code/            # Coder: system prompt, allowed commands
+│   │   └── infrastructure/  # Infra: SSH access, cluster topology
+│   └── server/              # HTTP server (FastAPI)
+│       ├── app.py           # Routes, session handling, expert routing
+│       ├── expert_router.py # Functionary-based classifier (smart truncation)
+│       ├── tool_groups.py   # Route → tool set mapping
+│       ├── note_observer.py # Background note extraction (per-request)
+│       ├── dual_model_orchestrator.py  # Two-LLM coordination
+│       ├── code_intelligence/  # Workspace indexing, code search, knowledge graph
+│       │   ├── workspace_indexer.py  # Config-driven project indexing
+│       │   └── trace_extension.py    # Code tracing and assembly
+│       └── user/            # User identification, profiles, memory
+├── workspace-sync/          # GitLab repo sync with hot-reload
+│   └── sync.py              # Structured logging, auto-detect, stale cleanup
+├── stack/                   # Self-contained infrastructure
+│   ├── embedding-server/    # Qwen3-Embedding-8B Dockerfile
+│   ├── functionary-router/  # llama.cpp router Dockerfile
+│   ├── vllm-notetaker/      # Note-taker vLLM Dockerfile
+│   ├── redis/               # Redis stack config
+│   ├── qdrant/              # Qdrant stack config
+│   ├── searxng/             # SearXNG + Valkey config
+│   └── memgraph/            # Knowledge graph config
+└── tests/
+    └── integration/         # Real infrastructure tests
+        ├── test_eva_full_trace.py      # End-to-end code tracing
+        └── test_tool_calling_e2e.py    # Tool execution verification
 ```
+
+---
+
+## Recent Changes
+
+### Self-Contained Stack (March 2026)
+- All 11 services defined in a single `docker-compose.yml` with Docker Hub images
+- `./setup.sh setup` handles first-time prereq checks, config creation, and image pulls
+- No external dependencies beyond Docker and a GPU
+
+### Workspace Sync & Hot-Reload Config
+- `workspace-sync` container clones/pulls from GitLab into `/workspace/`
+- Config changes (adding/removing repos) apply without restarting any container
+- Structured JSON logging with error escalation
+
+### Production-Grade Router
+- Smart message truncation for the Functionary classifier (prevents overflows)
+- Data block stripping (base64, large JSON) before classification
+- Configurable timeouts per route
+
+### Code Intelligence
+- Config-driven `project_map` replaces hardcoded `workspace_root`
+- Code tracing: trace execution paths and assemble into files
+- Tree-sitter PowerShell parser (pre-compiled v0.26.3, ABI v14)
+
+### Project Rename
+- Renamed from `confucius-code-agent` to **Analects**
+- Detached from upstream fork (`facebookresearch/cca-swebench`) — fully independent repo
+- Published to Docker Hub under `hellohal2064/` namespace
 
 ---
 
 ## Origin
 
-CCA is a fork of [Meta + Harvard's Confucius framework](https://github.com/facebookresearch/cca-swebench) ([paper](https://arxiv.org/abs/2512.10398)), originally designed as a SWE-bench agent harness. This fork extends it into a standalone Agent-as-a-Model server with expert routing, user awareness, code intelligence, and local inference optimization for NVIDIA DGX Spark hardware.
+Analects is built on [Meta + Harvard's Confucius framework](https://github.com/facebookresearch/cca-swebench) ([paper](https://arxiv.org/abs/2512.10398)), originally designed as a SWE-bench agent harness. This project extends it into a standalone Agent-as-a-Model server with expert routing, user awareness, code intelligence, workspace sync, and local inference optimization.
 
 ## License
 

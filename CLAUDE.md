@@ -1,21 +1,19 @@
-# Confucius Code Agent (CCA) - Development Guide
+# Analects - Development Guide
 
-**Repo**: https://github.com/seli-equinix/confucius-code-agent
-**Upstream**: https://github.com/facebookresearch/cca-swebench
-**Origin**: Meta + Harvard research project (arXiv:2512.10398)
+**Repo**: https://github.com/seli-equinix/analects
+**Origin**: Built on Meta + Harvard's Confucius framework (arXiv:2512.10398)
 
 ---
 
 ## Git Workflow
 
-CCA is a standalone repo — clone, configure, and run directly.
+Analects is a standalone repo — clone, configure, and run directly.
 
 ### Remotes
 
 | Remote | URL | Purpose |
 |--------|-----|---------|
-| `origin` | `https://github.com/seli-equinix/confucius-code-agent.git` | Primary development |
-| `upstream` | `https://github.com/facebookresearch/cca-swebench.git` | Sync upstream changes |
+| `origin` | `https://github.com/seli-equinix/analects.git` | Primary development |
 | `gitlab` | `http://192.168.4.204:8929/root/cca-tests.git` | CI/CD test pipelines |
 
 ### Development Workflow
@@ -25,14 +23,6 @@ CCA is a standalone repo — clone, configure, and run directly.
 git add <files> && git commit -m "description"
 git push origin main          # → GitHub
 git push gitlab HEAD:main     # → GitLab CI
-```
-
-### Pulling Upstream Updates
-
-```bash
-git fetch upstream
-git merge upstream/main
-git push origin main
 ```
 
 ---
@@ -655,12 +645,3 @@ curl http://localhost:8500/users
 
 ---
 
-## Upstream Sync
-
-```bash
-cd nvidia-dgx-spark/cca
-git fetch upstream
-git log --oneline upstream/main..HEAD   # see what we've added
-git merge upstream/main                 # pull in upstream changes
-git push origin main                    # push merged result to fork
-```
