@@ -627,6 +627,35 @@ class NoteObserver:
     # Qdrant note storage
     # ------------------------------------------------------------------
 
+    async def _store_fact_as_note(
+        self,
+        fact: Dict[str, Any],
+        user_id: str,
+        session_id: str,
+        route: str,
+    ) -> None:
+        """Store an extracted user fact as a note in cca_notes.
+
+        Bridges the gap between user_profiles (where facts live) and
+        cca_notes (where search_notes looks).  This ensures that user
+        preferences, tools, and project facts are discoverable via
+        semantic note search across sessions.
+        """
+        if self._qdrant is None or self._http_client is None:
+            return
+        content = f"{fact['key']}: {fact['value']}"
+        note = {
+            "content": content,
+            "type": "preference" if fact["key"] == "preference" else "fact",
+            "tags": [fact["key"], route],
+        }
+        try:
+            await self._store_notes_to_qdrant(
+                [note], session_id, user_id, user_name=None,
+            )
+        except Exception as e:
+            logger.warning("Failed to store fact as note: %s", e)
+
     async def _store_notes_to_qdrant(
         self,
         notes: List[Dict[str, Any]],
@@ -817,6 +846,12 @@ class NoteObserver:
                     temp_session, fact["key"], fact["value"],
                 )
                 stored += 1
+
+                # Also store as a note in cca_notes so facts are
+                # searchable via search_notes (bridges profiles → notes).
+                await self._store_fact_as_note(
+                    fact, user_id, session_id, route,
+                )
 
             logger.info(
                 "FactExtractor[%s]: stored %d facts for user %s: %s",
