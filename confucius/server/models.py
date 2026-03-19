@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
 
-"""OpenAI-compatible Pydantic models for the CCA HTTP server.
+"""OpenAI-compatible Pydantic models for the Analects HTTP server.
 
 Extracted and adapted from MCP server mcp_server.py (lines 3880-4040).
 Provides full OpenAI Chat Completions API compatibility for clients

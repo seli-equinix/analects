@@ -75,7 +75,7 @@ health-check:
   stage: preflight
   image: 192.168.4.204:5000/cca-tests/test-runner:latest
   script:
-    - echo "=== CCA Server ==="
+    - echo "=== Analects Server ==="
     - curl -sf --max-time 10 $CCA_BASE_URL/health | python3 -m json.tool
     - echo "=== vLLM Server ==="
     - curl -sf --max-time 10 ${VLLM_BASE_URL%/v1}/health && echo "OK"

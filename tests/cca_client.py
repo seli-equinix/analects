@@ -1,4 +1,4 @@
-"""HTTP client for the CCA Agent-as-a-Model server.
+"""HTTP client for the Analects Agent-as-a-Model server.
 
 Uses SSE streaming with idle timeout instead of fixed total timeouts.
 This means tests won't fail just because a task takes longer than expected

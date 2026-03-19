@@ -1,5 +1,5 @@
 # Functionary v3.2 Tool Router
-# Purpose: Fast request classification for CCA agent workflows
+# Purpose: Fast request classification for Analects agent workflows
 # API: OpenAI-compatible /v1/chat/completions with tool_calls
 # Port: 8001
 #

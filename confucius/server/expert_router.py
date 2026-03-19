@@ -579,7 +579,7 @@ TOOL_SELECTION_TOOLS: List[Dict[str, Any]] = [
 ]
 
 TOOL_SELECTOR_SYSTEM_PROMPT = """\
-You are a tool selector for CCA (Confucius Code Agent). The main agent is \
+You are a tool selector for Analects. The main agent is \
 stuck — it needs tools it doesn't currently have.
 
 Analyze the agent's last output and determine which tool groups to enable.
@@ -789,7 +789,7 @@ async def select_tools_for_escalation(
 
 # System prompt for the classifier
 ROUTER_SYSTEM_PROMPT = """\
-You are an expert request router for CCA (Confucius Code Agent), a full-stack \
+You are an expert request router for Analects, a full-stack \
 coding and infrastructure management agent.
 
 Analyze the user's request and call EXACTLY ONE routing function.

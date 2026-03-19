@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Application startup / shutdown lifecycle."""
     global session_pool, user_session_mgr, critical_facts_extractor, note_observer, backend_clients
 
-    logger.info("CCA HTTP server starting up...")
+    logger.info("Analects HTTP server starting up...")
 
     # Warn if OPENAI_API_KEY is a dummy placeholder
     _oai_key = os.getenv("OPENAI_API_KEY", "")
@@ -177,7 +177,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     health_task = asyncio.create_task(_backend_health_loop())
     monitor_task = asyncio.create_task(_workspace_monitor_loop())
 
-    logger.info(f"CCA HTTP server ready — serving as model: {SERVED_MODEL_NAME}")
+    logger.info(f"Analects HTTP server ready — serving as model: {SERVED_MODEL_NAME}")
     yield
 
     # Shutdown
@@ -204,7 +204,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     await close_router_client()
     await user_session_mgr.close()
     shutdown_tracing()
-    logger.info("CCA HTTP server shut down")
+    logger.info("Analects HTTP server shut down")
 
 
 async def _cleanup_loop() -> None:

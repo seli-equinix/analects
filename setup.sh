@@ -1,5 +1,5 @@
 #!/bin/bash
-# CCA Full Stack — Setup & Management
+# Analects Full Stack — Setup & Management
 # Usage: ./setup.sh [setup|pull|start|stop|status|logs]
 set -euo pipefail
 
@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 usage() {
-    echo "CCA Full Stack Manager"
+    echo "Analects Full Stack Manager"
     echo ""
     echo "Usage: ./setup.sh <command>"
     echo ""
@@ -86,7 +86,7 @@ check_prereqs() {
 
 setup() {
     echo -e "${BLUE}═══════════════════════════════════════${NC}"
-    echo -e "${BLUE}  CCA Full Stack — First Time Setup${NC}"
+    echo -e "${BLUE}  Analects Full Stack — First Time Setup${NC}"
     echo -e "${BLUE}═══════════════════════════════════════${NC}"
     echo ""
 

@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # pyre-strict
 
-"""SSE streaming with keepalive for the CCA HTTP server.
+"""SSE streaming with keepalive for the Analects HTTP server.
 
 Uses an asyncio.Queue fed by HttpIOInterface to stream orchestrator
 output as Server-Sent Events. Sends keepalive comments every 8 seconds

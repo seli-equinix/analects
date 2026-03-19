@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""CCA Agent Evaluation Runner — Phoenix Experiments.
+"""Analects Agent Evaluation Runner — Phoenix Experiments.
 
-Runs the cca-agent-eval dataset through the CCA Agent-as-a-Model endpoint
+Runs the cca-agent-eval dataset through the Analects Agent-as-a-Model endpoint
 and records results as Phoenix experiments with automated evaluators.
 
 Usage:
@@ -162,7 +162,7 @@ class PhoenixClient:
 def call_cca(
     base_url: str, message: str, session_id: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Send a message to the CCA agent and return the raw response."""
+    """Send a message to the Analects agent and return the raw response."""
     session_id = session_id or f"eval-{uuid.uuid4().hex[:12]}"
     payload = {
         "model": "cca",
@@ -333,7 +333,7 @@ def run_evaluation(
     category: Optional[str] = None,
     run_evals: bool = True,
 ) -> Dict[str, Any]:
-    """Run CCA evaluation experiment."""
+    """Run Analects evaluation experiment."""
 
     phoenix = PhoenixClient(phoenix_url)
     try:
@@ -469,7 +469,7 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(
-        description="Run CCA agent evaluation experiment"
+        description="Run Analects agent evaluation experiment"
     )
     parser.add_argument(
         "--name", default=None,
