@@ -229,6 +229,7 @@ Manage the stack: `./setup.sh stop`, `./setup.sh logs [service]`, `./setup.sh st
 | **GPU + model weights** | vLLM coder needs a large model | Runs on a separate machine; set `VLLM_URL` in `.env` |
 | **Git server** | Workspace-sync clones your repos for the agent to work on | GitLab, GitHub, Gitea — any git server over HTTP/HTTPS |
 | **Model weights on host** | Note-taker, embedding, and router models | Set `MODELS_DIR` in `.env` pointing to your HuggingFace cache |
+| **Phoenix (separate host)** | Trace collection and debugging UI for the agent loop | See [Phoenix Setup](#phoenix-observability) below |
 
 ### Required Models
 
@@ -410,6 +411,50 @@ skip_dirs = [".git", "node_modules", "__pycache__", ".venv"]
 5. Agent searches indexed code, reads files, and answers with full context
 6. For migration repos: agent can edit files and push commits back
 ```
+
+### Phoenix Observability
+
+Phoenix provides trace collection and a web UI for debugging the agent loop. It runs on a **separate machine** from the Analects stack (it doesn't need a GPU — any machine with Docker works).
+
+**Why it's required**: When a request goes wrong — wrong expert route, tool call failure, note-taker didn't extract anything — the Phoenix trace shows you the full span tree: router classification, every tool call, every LLM response, and timing. Without it you're guessing from logs.
+
+#### Setup Phoenix (on a separate host)
+
+```bash
+# On your Phoenix host (any machine with Docker — no GPU needed)
+cd stack/phoenix
+cp docker-compose.yml to your Phoenix host
+
+# Set a database password
+export PHOENIX_DB_PASSWORD=your-password
+
+# Start Phoenix
+docker compose up -d
+```
+
+This starts:
+- **Phoenix UI** on port `6006` — open in your browser to view traces
+- **OTel gRPC collector** on port `4317` — where Analects sends traces
+- **Postgres** — trace storage (persistent volume)
+
+#### Connect Analects to Phoenix
+
+In your Analects `config.toml`:
+
+```toml
+[services]
+phoenix_endpoint = "http://your-phoenix-host:4317"
+phoenix_project = "analects"
+```
+
+Or via `.env`:
+
+```env
+PHOENIX_COLLECTOR_ENDPOINT=http://your-phoenix-host:4317
+PHOENIX_PROJECT_NAME=analects
+```
+
+Once connected, every `/v1/chat/completions` request produces a trace visible in the Phoenix UI at `http://your-phoenix-host:6006`.
 
 ---
 

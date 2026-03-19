@@ -170,7 +170,7 @@ embedding_url = "http://localhost:8200"
 searxng_url = "http://localhost:8888"
 memgraph_host = "localhost"
 memgraph_port = 7687
-phoenix_endpoint = ""                  # empty = tracing disabled
+phoenix_endpoint = "http://YOUR_PHOENIX_HOST:4317"  # REQUIRED — OTel gRPC endpoint (see stack/phoenix/)
 phoenix_project = "analects"
 cors_origins = "*"
 

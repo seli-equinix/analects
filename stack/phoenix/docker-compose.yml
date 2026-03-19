@@ -1,0 +1,50 @@
+# Phoenix AI Observability — Trace UI for Analects
+#
+# Run this on a SEPARATE machine from the Analects stack.
+# Phoenix provides OpenTelemetry trace collection and a web UI
+# for debugging the agent loop, tool calls, and LLM interactions.
+#
+# Deploy:  docker compose up -d
+# Web UI:  http://<this-host>:6006
+# OTel gRPC: port 4317 (configure in Analects config.toml)
+# OTel HTTP: port 4318 (alternative)
+#
+# After starting, set in your Analects config.toml:
+#   [services]
+#   phoenix_endpoint = "http://<this-host>:4317"
+
+services:
+  phoenix-db:
+    image: postgres:16-alpine
+    container_name: phoenix-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: phoenix
+      POSTGRES_PASSWORD: ${PHOENIX_DB_PASSWORD:-changeme}
+      POSTGRES_DB: phoenix
+    volumes:
+      - phoenix-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phoenix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  phoenix:
+    image: arizephoenix/phoenix:version-13.1.1
+    container_name: phoenix
+    restart: unless-stopped
+    depends_on:
+      phoenix-db:
+        condition: service_healthy
+    environment:
+      PHOENIX_SQL_DATABASE_URL: postgresql://phoenix:${PHOENIX_DB_PASSWORD:-changeme}@phoenix-db:5432/phoenix
+      PHOENIX_ENABLE_AUTH: "false"
+      PHOENIX_WORKING_DIR: /phoenix-data
+    ports:
+      - "6006:6006"     # Web UI
+      - "4317:4317"     # OTel gRPC collector
+      - "4318:4318"     # OTel HTTP collector
+
+volumes:
+  phoenix-postgres:
