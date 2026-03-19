@@ -93,23 +93,32 @@ openai_model_prefixes = ["qwen", "/models/"]
 [active]
 coder = "local"             # Use local vLLM for code generation
 note_taker = "local"        # Use local small model for note-taking
+tool_orchestrator = "local" # 8B model for research tool iterations
 planner = "local"
 reviewer = "local"
 tester = "local"
 search = "local"
+search_researcher = "local" # Researcher for search tool iterations
 
 [providers.local.coder]
 model = "/models/Qwen3.5-35B-A3B-FP8"
 provider = "openai"
 base_url = "http://your-vllm-host:8000/v1"
 api_key_env = "OPENAI_API_KEY"
+initial_max_tokens = 8192           # first response token limit
+max_tokens = 16384                  # subsequent iterations
 temperature = 0.3
+# thinking_budget = 32768           # for models with extended thinking
+# cost_per_1m_input = 0.0           # for usage tracking (local = free)
+# cost_per_1m_output = 0.0
 
 [providers.local.note_taker]
 model = "/models/Qwen3-8B-FP8"
 provider = "openai"
 base_url = "http://your-notetaker-host:8400/v1"
 api_key_env = "OPENAI_API_KEY"
+initial_max_tokens = 4096
+max_tokens = 8192
 temperature = 0.3
 ```
 
@@ -127,6 +136,16 @@ memgraph_port = 7687
 [router]
 enabled = true
 url = "http://your-functionary-host:8001"
+timeout_ms = 10000
+fallback_entry = "coder"
+temperature = 0.1
+
+# In-loop tool selection (smart tool escalation during agent execution)
+[tool_router]
+enabled = true
+url = "http://your-functionary-host:8001"
+timeout_ms = 10000
+temperature = 0.1
 ```
 
 Or use cloud providers instead of local vLLM:

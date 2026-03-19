@@ -1,4 +1,4 @@
-# CCA (Confucius Code Agent) Configuration
+# Analects Configuration
 # Copy to config.toml and edit for your infrastructure.
 #
 # Switch between "cloud" and "local" provider sets per role.
@@ -6,13 +6,12 @@
 #
 # Required environment variables (set in .env or shell):
 #   REDIS_URL       — Full Redis URL with auth, e.g. redis://:password@host:6379/0
-#   GITLAB_TOKEN    — GitLab Personal Access Token (for CI scripts/dashboard)
 #   OPENAI_API_KEY  — Set to "dummy" for local vLLM (it doesn't validate keys)
 #
 # Optional environment variables:
-#   GITLAB_URL          — GitLab base URL (default: http://localhost:8929)
-#   GITLAB_PASS         — GitLab password (for workspace-sync)
-#   GITLAB_PROJECT_ID   — GitLab project ID (default: 4)
+#   GITLAB_PASS         — GitLab password (for workspace-sync credentials)
+#   GITLAB_TOKEN        — GitLab Personal Access Token (for CI scripts/dashboard)
+#   GITHUB_TOKEN        — GitHub token (for workspace-sync credentials)
 #   PHOENIX_URL         — Phoenix UI URL (default: http://localhost:6006)
 
 # Models matching these prefixes route through OpenAILLMManager
@@ -172,14 +171,14 @@ searxng_url = "http://localhost:8888"
 memgraph_host = "localhost"
 memgraph_port = 7687
 phoenix_endpoint = ""                  # empty = tracing disabled
-phoenix_project = "cca"
+phoenix_project = "analects"
 cors_origins = "*"
 
 # ──────────────────────────────────────────────
 # EXPERT ROUTER (Functionary)
 # ──────────────────────────────────────────────
 # Uses a small Functionary model to classify incoming requests
-# and route them to the appropriate CCA expert entry.
+# and route them to the appropriate Analects expert entry.
 
 [router]
 enabled = true
@@ -199,9 +198,9 @@ temperature = 0.1
 # WORKSPACE — Repository Management (Single Source of Truth)
 # ──────────────────────────────────────────────
 # Defines ALL repos cloned into /workspace.  Both workspace-sync (git
-# clone/pull) and the CCA indexer (Qdrant/Memgraph) derive their project
-# lists from this section.  To add/remove a repo, edit here and restart
-# workspace-sync.
+# clone/pull) and the Analects indexer (Qdrant/Memgraph) derive their
+# project lists from this section.  To add/remove a repo, just edit here —
+# workspace-sync hot-reloads config.toml every cycle (no restart needed).
 
 [workspace]
 sync_interval = 60                      # seconds between git pulls
@@ -223,8 +222,8 @@ token = "${GITLAB_PASS}"                # Set GITLAB_PASS in .env
 # token = "${GITHUB_TOKEN}"            # Set GITHUB_TOKEN in .env
 
 # Repositories — each entry is one repo managed in /workspace.
-# type = "source"    → periodic git pull (CCA reads only)
-# type = "migration" → clone once (CCA manages commits/push)
+# type = "source"    → periodic git pull (Analects reads only)
+# type = "migration" → clone once (Analects manages commits/push)
 [[workspace.repos]]
 name = "your-project"
 repo = "root/your-project"
