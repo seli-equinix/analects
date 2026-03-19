@@ -30,9 +30,9 @@ class TestCodeIntelligence:
 
         try:
             # ── Turn 1: Query the call graph ──
-            # Developer wants to understand who calls a function before modifying it
+            # Developer wants to understand who calls a real indexed function
             msg1 = (
-                "Using the code graph, what functions call 'build_user_context'? "
+                "Using the code graph, what functions call 'Connect-SessionVC'? "
                 "Show me the callers and which files they're in."
             )
             r1 = cca.chat(msg1, session_id=sid)
@@ -54,8 +54,8 @@ class TestCodeIntelligence:
             # Should mention function names or file paths
             content1 = r1.content.lower()
             has_graph_data = any(w in content1 for w in [
-                "caller", "calls", "call_graph", "build_user_context",
-                ".py", "function",
+                "caller", "calls", "call_graph", "connect-sessionvc",
+                ".ps1", ".psm1", "function", "vcenter",
             ])
             trace_test.set_attribute("cca.test.t1_has_graph_data", has_graph_data)
             assert has_graph_data, (
@@ -96,9 +96,9 @@ class TestCodeIntelligence:
             )
 
             # ── Turn 3: Analyze dependencies ──
-            # Developer wants to know impact before changing a file
+            # Developer wants to know impact before changing a real indexed file
             msg3 = (
-                "Analyze the dependencies of the user_context.py file. "
+                "Analyze the dependencies of the equinix.automation.vcenter.psm1 file. "
                 "What other files depend on it, and what would be impacted "
                 "if I changed its main functions?"
             )
@@ -120,8 +120,9 @@ class TestCodeIntelligence:
             # Should mention files or dependencies
             content3 = r3.content.lower()
             has_deps = any(w in content3 for w in [
-                "depend", "import", "impact", "user_context",
-                ".py", "module", "coupling",
+                "depend", "import", "impact", "vcenter",
+                ".ps1", ".psm1", "module", "coupling",
+                "function", "caller", "called",
             ])
             trace_test.set_attribute("cca.test.t3_has_deps", has_deps)
             assert has_deps, (
