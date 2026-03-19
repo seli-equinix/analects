@@ -158,7 +158,7 @@ class CCAClient:
         idle_timeout: Optional[float] = None,
         system: Optional[str] = None,
     ) -> ChatResult:
-        """POST /v1/chat/completions — send a message to the CCA agent.
+        """POST /v1/chat/completions — send a message to the Analects agent.
 
         Uses SSE streaming with idle timeout. The connection stays open as
         long as the server sends data (content, keepalives, progress).

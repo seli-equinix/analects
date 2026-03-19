@@ -6,7 +6,7 @@
 #   1. Push code from node5 to GitHub
 #   2. Pull on Spark1 (including submodule)
 #   3. Build container on Spark1
-#   4. Run CCA agent
+#   4. Run Analects agent
 set -e
 
 SPARK1="${CCA_DEPLOY_HOST:?Set CCA_DEPLOY_HOST env var (e.g. 192.168.1.100)}"

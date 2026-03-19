@@ -12,7 +12,7 @@ async def run_agent_with_prompt(
     prompt: str, entry_name="Code", verbose: bool = False
 ) -> None:
     """
-    Run the Confucius Code agent with a given prompt and wait for completion.
+    Run the Analects agent with a given prompt and wait for completion.
 
     Args:
         prompt: The input prompt to send to the agent

@@ -18,7 +18,7 @@ Usage:
     python -m scripts.run_eval --no-eval
 
 Environment:
-    CCA_URL         CCA agent endpoint (default: http://localhost:8500)
+    CCA_URL         Analects agent endpoint (default: http://localhost:8500)
     PHOENIX_URL     Phoenix server (default: http://localhost:6006)
     DATASET_NAME    Phoenix dataset name (default: cca-agent-eval)
 """

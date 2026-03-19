@@ -1037,7 +1037,7 @@ Rules system — assess if needed for CCA:
 - `delete_rule`
 
 ### Skip — MCP-Protocol-Only (5 tools)
-Not needed in CCA (handled by FileEditExtension):
+Not needed in Analects (handled by FileEditExtension):
 - `copy_file`
 - `replace_lines`
 - `insert_lines`

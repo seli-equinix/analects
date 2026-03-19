@@ -198,7 +198,7 @@ def trigger_reindex() -> None:
             method="POST",
         )
         urllib.request.urlopen(req, timeout=60)
-        log.info("Re-index triggered on CCA (%s)", CCA_URL)
+        log.info("Re-index triggered on Analects (%s)", CCA_URL)
     except urllib.error.URLError as e:
         log.error(
             "Re-index trigger failed — CCA may not be running at %s: %s",

@@ -7,7 +7,7 @@
 
 ## 1. What Was Built
 
-CCA (Confucius Code Agent) gained a second mode: an **HTTP server** that accepts OpenAI-compatible `/v1/chat/completions` requests, runs the **same orchestrator and full agent loop** as CLI mode, and returns responses formatted as OpenAI chat completions — with full user identification and personalization ported from the MCP server.
+Analects gained a second mode: an **HTTP server** that accepts OpenAI-compatible `/v1/chat/completions` requests, runs the **same orchestrator and full agent loop** as CLI mode, and returns responses formatted as OpenAI chat completions — with full user identification and personalization ported from the MCP server.
 
 ### Architecture
 
@@ -334,7 +334,7 @@ provider.add_span_processor(BatchSpanProcessor(exporter))
 trace.set_tracer_provider(provider)
 ```
 
-### Environment Variables for CCA HTTP Container
+### Environment Variables for Analects HTTP Container
 ```yaml
 environment:
   - OTEL_EXPORTER_OTLP_ENDPOINT=http://192.168.4.204:4317

@@ -18,7 +18,7 @@ from .utils import run_agent_with_prompt
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Run Confucius Code Agent with a prompt from a text file"
+        description="Run Analects with a prompt from a text file"
     )
     parser.add_argument(
         "--prompt",
@@ -98,7 +98,7 @@ Plz make sure you commit your change at the end, otherwise I won't be able to ex
         print(f"Stack trace:\n{traceback.format_exc()}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Running Confucius Code Agent with prompt from file: {args.prompt}")
+    print(f"Running Analects with prompt from file: {args.prompt}")
 
     try:
         asyncio.run(run_agent_with_prompt(prompt, verbose=args.verbose))

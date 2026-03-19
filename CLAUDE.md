@@ -439,7 +439,7 @@ Exceptions: `OrchestratorInterruption` (pause), `OrchestratorTermination` (stop)
 
 ## Phoenix Observability Integration
 
-Phoenix (Arize Phoenix v13.1.1) provides trace visualization for CCA agent debugging. Tracing is **built-in** — the CCA HTTP server automatically exports spans to Phoenix on startup.
+Phoenix (Arize Phoenix v13.1.1) provides trace visualization for Analects agent debugging. Tracing is **built-in** — the Analects HTTP server automatically exports spans to Phoenix on startup.
 
 | Property | Value |
 |----------|-------|
