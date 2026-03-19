@@ -1,4 +1,4 @@
-# Confucius Code Agent (CCA) as Agent-as-a-model
+# Analects the Agent-as-a-model based on Confucius Code Agent (CCA)
 
 An AI coding agent that runs as an **Agent-as-a-Model** HTTP server. Send it OpenAI-compatible `/v1/chat/completions` requests, and it runs a full agent loop internally — reading files, executing commands, editing code, searching the web, and managing long-term memory — then returns the result as a standard chat completion.
 
