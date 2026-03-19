@@ -139,12 +139,8 @@ const PHOENIX_UI = 'http://192.168.4.204:6006';
 const QDRANT_API = 'http://192.168.4.205:6333';
 const CCA_API = 'http://192.168.4.205:8500';
 
-// GitLab token — prompt on first use, store in browser localStorage
-let TOKEN = localStorage.getItem('gitlab_token') || '';
-if (!TOKEN) {
-  TOKEN = prompt('Enter GitLab Personal Access Token (glpat-...):', '') || '';
-  if (TOKEN) localStorage.setItem('gitlab_token', TOKEN);
-}
+// GitLab token — internal network, no external exposure
+const TOKEN = 'glpat-eZyXT0lQhgPgjkxOprDD8m86MQp1OjEH.01.0w0yemn3j';
 
 // Test user prefixes created by test fixtures (NOT real users like sean/seli)
 const TEST_USER_PREFIXES = [
