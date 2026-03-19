@@ -137,6 +137,7 @@ services:
     image: python:3.12-alpine
     container_name: cca-workspace-sync
     restart: unless-stopped
+    init: true                # tini reaps zombie git child processes
     command: ["sh", "-c", "apk add --no-cache git curl && python3 /sync/sync.py"]
     network_mode: host
     volumes:
