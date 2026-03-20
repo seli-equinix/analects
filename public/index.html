@@ -113,6 +113,7 @@
 
 <div class="controls">
   <button class="btn btn-primary" onclick="runGroup('all')">Run All</button>
+  <button class="btn" onclick="runFailed()" style="border-color:var(--red);color:var(--red)">Run Failed</button>
   <button class="btn" onclick="runGroup('all-user')">User</button>
   <button class="btn" onclick="runGroup('all-websearch')">Websearch</button>
   <button class="btn" onclick="runGroup('all-coder')">Coder</button>
@@ -701,6 +702,37 @@ async function runGroup(group) {
   }
   const msg = `Started ${started} pipelines` + (failed ? `, ${failed} failed` : '');
   showStatus(msg, failed ? 'error' : 'success');
+  setTimeout(async () => { await refreshAll(); }, 3000);
+}
+
+async function runFailed() {
+  const failedTests = TESTS.filter(t => {
+    const runs = testStatus[t.name] || [];
+    const latest = runs[0];
+    return latest && latest.status === 'failed';
+  });
+  if (!failedTests.length) {
+    showStatus('No failed tests to re-run', 'success');
+    return;
+  }
+  showStatus(`Re-running ${failedTests.length} failed test(s)...`);
+  let started = 0, errors = 0;
+  for (const t of failedTests) {
+    try {
+      const r = await fetch(`${GITLAB_API}/projects/${PROJECT_ID}/pipeline`, {
+        method: 'POST',
+        headers: {'PRIVATE-TOKEN': TOKEN, 'Content-Type': 'application/json'},
+        body: JSON.stringify({ref: 'main', variables: [{key: 'RUN_TEST', value: t.name}]})
+      });
+      const pipeline = await r.json();
+      if (pipeline.id) {
+        started++;
+        showStatus(`Re-running failed: ${started}/${failedTests.length}...`);
+      } else { errors++; }
+    } catch(e) { errors++; }
+  }
+  const msg = `Started ${started} failed test(s)` + (errors ? `, ${errors} errors` : '');
+  showStatus(msg, errors ? 'error' : 'success');
   setTimeout(async () => { await refreshAll(); }, 3000);
 }
 
