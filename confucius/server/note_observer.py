@@ -621,10 +621,33 @@ class NoteObserver:
 
     @staticmethod
     def _strip_thinking(content: str) -> str:
-        """Remove <think>...</think> tags from Qwen3 output."""
+        """Remove thinking/reasoning text from Qwen3 output.
+
+        Handles multiple formats:
+        - <think>...</think> XML tags (Qwen3 thinking mode)
+        - "Thinking Process:" plain-text reasoning prefix
+        - Any text before the first [ or { (the JSON output)
+        """
         import re
 
-        return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+        # 1. Strip <think>...</think> tags
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+        # 2. If content starts with non-JSON text (thinking/reasoning),
+        #    extract the JSON portion starting from the first [ or {
+        if content and content[0] not in ("[", "{"):
+            # Find the first JSON array or object
+            bracket_pos = content.find("[")
+            brace_pos = content.find("{")
+            positions = [p for p in (bracket_pos, brace_pos) if p >= 0]
+            if positions:
+                json_start = min(positions)
+                content = content[json_start:]
+            else:
+                # No JSON found at all
+                content = ""
+
+        return content.strip()
 
     @staticmethod
     def _parse_notes_json(content: str) -> List[Dict[str, Any]]:
