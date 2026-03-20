@@ -640,18 +640,52 @@ class NoteObserver:
         cca_notes (where search_notes looks).  This ensures that user
         preferences, tools, and project facts are discoverable via
         semantic note search across sessions.
+
+        Note: Stores directly to Qdrant without the ``_user_exists()``
+        guard that ``_store_notes_to_qdrant()`` uses.  The fact was
+        extracted from a real conversation — it should persist even if
+        the user profile is deleted during test cleanup or account
+        removal.  Orphaned notes are cleaned up separately.
         """
         if self._qdrant is None or self._http_client is None:
             return
+
         content = f"{fact['key']}: {fact['value']}"
-        note = {
-            "content": content,
-            "type": "preference" if fact["key"] == "preference" else "fact",
-            "tags": [fact["key"], route],
-        }
+        note_type = "preference" if fact["key"] == "preference" else "fact"
+        tags = [fact["key"], route]
+
         try:
-            await self._store_notes_to_qdrant(
-                [note], session_id, user_id, user_name=None,
+            import uuid as _uuid
+            from datetime import datetime
+
+            texts = [content]
+            embeddings = await self._embed(texts)
+            if not embeddings:
+                logger.warning("Failed to embed fact note: %s", content[:100])
+                return
+
+            from qdrant_client.models import PointStruct
+            point = PointStruct(
+                id=str(_uuid.uuid4()),
+                vector=embeddings[0],
+                payload={
+                    "content": content,
+                    "type": note_type,
+                    "tags": tags,
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "source": "fact_extractor",
+                    "created_at": datetime.now().isoformat(),
+                },
+            )
+            await self._qdrant.upsert(
+                collection_name=NOTES_COLLECTION,
+                points=[point],
+                wait=True,
+            )
+            logger.info(
+                "Stored fact as note: %s (user=%s, session=%s)",
+                content[:80], user_id, session_id,
             )
         except Exception as e:
             logger.warning("Failed to store fact as note: %s", e)
@@ -818,40 +852,42 @@ class NoteObserver:
             if not facts:
                 return
 
-            # Guard: skip if user was deleted while extracting
-            if not await self._user_exists(user_id):
-                logger.info(
-                    "Skipping fact storage: user %s deleted", user_id,
-                )
-                return
-
-            stored = 0
+            # Always store facts as notes in cca_notes FIRST.
+            # Notes persist even if the user profile is deleted — they
+            # capture session knowledge that search_notes can recall.
             for fact in facts:
-                # Re-check before each store to avoid re-creating
-                # a profile that was deleted by a concurrent request
-                if stored > 0 and stored % 3 == 0:
-                    if not await self._user_exists(user_id):
-                        logger.info(
-                            "Stopping fact storage mid-loop: "
-                            "user %s deleted", user_id,
-                        )
-                        break
-
-                temp_session = Session(
-                    session_id=session_id,
-                    user_id=user_id,
-                    identified=True,
-                )
-                await session_mgr.remember_user_fact(
-                    temp_session, fact["key"], fact["value"],
-                )
-                stored += 1
-
-                # Also store as a note in cca_notes so facts are
-                # searchable via search_notes (bridges profiles → notes).
                 await self._store_fact_as_note(
                     fact, user_id, session_id, route,
                 )
+
+            # Then store to user profile (may be skipped if user deleted)
+            user_exists = await self._user_exists(user_id)
+            if not user_exists:
+                logger.info(
+                    "FactExtractor[%s]: stored %d notes but skipping "
+                    "profile update — user %s deleted",
+                    route, len(facts), user_id,
+                )
+            else:
+                stored = 0
+                for fact in facts:
+                    if stored > 0 and stored % 3 == 0:
+                        if not await self._user_exists(user_id):
+                            logger.info(
+                                "Stopping profile fact storage mid-loop: "
+                                "user %s deleted", user_id,
+                            )
+                            break
+
+                    temp_session = Session(
+                        session_id=session_id,
+                        user_id=user_id,
+                        identified=True,
+                    )
+                    await session_mgr.remember_user_fact(
+                        temp_session, fact["key"], fact["value"],
+                    )
+                    stored += 1
 
             logger.info(
                 "FactExtractor[%s]: stored %d facts for user %s: %s",
