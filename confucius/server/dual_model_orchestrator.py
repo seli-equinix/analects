@@ -398,7 +398,10 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         object.__setattr__(self, '_iteration_count', iteration)
 
         model_name = getattr(chat, 'model', 'unknown')
-        with tracer.start_as_current_span("cca.llm.invoke") as span:
+        # Short model label for Phoenix span tree readability
+        model_short = "9B" if self._using_fast_model else "35B"
+        span_name = f"llm.{model_short} iter={iteration}"
+        with tracer.start_as_current_span(span_name) as span:
             span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
             span.set_attribute("llm.model_name", str(model_name))
             span.set_attribute("cca.llm.iteration", iteration)

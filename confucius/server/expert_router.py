@@ -636,7 +636,7 @@ async def select_tools_for_escalation(
     """
     tracer = get_tracer()
 
-    with tracer.start_as_current_span("cca.tool_selector") as span:
+    with tracer.start_as_current_span("tool_selector (Functionary-8B)") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
         span.set_attribute(INPUT_VALUE, agent_output[:500])
         span.set_attribute(LLM_MODEL_NAME, "functionary-small-v3.2")
@@ -1025,7 +1025,7 @@ async def classify_request(
     """
     tracer = get_tracer()
 
-    with tracer.start_as_current_span("cca.router") as span:
+    with tracer.start_as_current_span("router (Functionary-8B)") as span:
         span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
         span.set_attribute(INPUT_VALUE, user_message[:500])
         span.set_attribute(LLM_MODEL_NAME, "functionary-small-v3.2")

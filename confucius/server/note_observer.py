@@ -380,7 +380,7 @@ class NoteObserver:
                         redis_span.set_attribute("cca.note.status", "stored")
 
                     # 2. Extract notes via Spark1 Qwen3-8B
-                    with tracer.start_as_current_span("cca.note.extract_llm") as llm_span:
+                    with tracer.start_as_current_span(f"note_extract ({self._llm_model})") as llm_span:
                         llm_span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
                         llm_span.set_attribute(LLM_MODEL_NAME, self._llm_model)
                         llm_span.set_attribute("cca.note.llm_url", self._llm_url)
@@ -905,7 +905,7 @@ class NoteObserver:
             return
 
         tracer = get_tracer()
-        with tracer.start_as_current_span("cca.fact_extractor") as span:
+        with tracer.start_as_current_span(f"fact_extract ({self._llm_model})") as span:
             span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
             span.set_attribute(LLM_MODEL_NAME, self._llm_model)
             span.set_attribute("cca.fact_extractor.route", route)
