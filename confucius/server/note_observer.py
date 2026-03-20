@@ -622,27 +622,50 @@ class NoteObserver:
         Handles multiple formats:
         - <think>...</think> XML tags (Qwen3 thinking mode)
         - "Thinking Process:" plain-text reasoning prefix
-        - Any text before the first [ or { (the JSON output)
+        - Prompt instruction echoes ("Return [] if no facts found")
+
+        Strategy: find every `[` in the content, try to parse from
+        that position as JSON. Use the LAST successfully parsed array
+        that contains objects (the actual output, not instruction echoes).
         """
         import re
 
         # 1. Strip <think>...</think> tags
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-        # 2. If content starts with non-JSON text (thinking/reasoning),
-        #    extract the JSON portion starting from the first [ or {
-        if content and content[0] not in ("[", "{"):
-            # Find the first JSON array or object
-            bracket_pos = content.find("[")
-            brace_pos = content.find("{")
-            positions = [p for p in (bracket_pos, brace_pos) if p >= 0]
-            if positions:
-                json_start = min(positions)
-                content = content[json_start:]
-            else:
-                # No JSON found at all
-                content = ""
+        # 2. Try to find a valid JSON array by scanning for [ positions
+        #    and attempting json.loads from each one.
+        best_result = None
+        for i, ch in enumerate(content):
+            if ch != "[":
+                continue
+            # Try to parse a JSON array starting here
+            # Find the matching ] by tracking depth
+            depth = 0
+            for j in range(i, len(content)):
+                if content[j] == "[":
+                    depth += 1
+                elif content[j] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = content[i : j + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                            if isinstance(parsed, list):
+                                # Prefer arrays with objects (facts)
+                                # over empty arrays
+                                if parsed and isinstance(parsed[0], dict):
+                                    return candidate  # Found real facts
+                                if best_result is None:
+                                    best_result = candidate
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
 
+        if best_result is not None:
+            return best_result
+
+        # 3. Fallback: return content as-is for the parser to handle
         return content.strip()
 
     @staticmethod
