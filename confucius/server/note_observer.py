@@ -893,11 +893,19 @@ class NoteObserver:
                 max_tokens=512,
             )
 
-            content = self._strip_thinking(
-                response.choices[0].message.content or "",
+            raw_content = response.choices[0].message.content or ""
+            content = self._strip_thinking(raw_content)
+            logger.info(
+                "FactExtractor[%s]: LLM returned %d chars for session %s: %s",
+                route, len(content), session_id, content[:200],
             )
             facts = self._parse_facts_json(content)
             if not facts:
+                logger.info(
+                    "FactExtractor[%s]: no facts parsed from LLM response "
+                    "(session=%s, raw=%s)",
+                    route, session_id, content[:300],
+                )
                 return
 
             # Filter out garbage facts (LLM sometimes returns "none"/"unknown")
@@ -964,7 +972,7 @@ class NoteObserver:
 
     @staticmethod
     def _parse_facts_json(content: str) -> List[Dict[str, str]]:
-        """Parse [{key, value}] JSON from LLM output."""
+        """Parse [{key, value, scope?, project?}] JSON from LLM output."""
         content = content.strip()
         if content.startswith("```"):
             lines = content.split("\n")
@@ -975,13 +983,22 @@ class NoteObserver:
         try:
             parsed = json.loads(content)
             if isinstance(parsed, list):
-                return [
-                    {"key": str(f["key"]), "value": str(f["value"])}
-                    for f in parsed
-                    if isinstance(f, dict) and "key" in f and "value" in f
-                ]
+                results = []
+                for f in parsed:
+                    if isinstance(f, dict) and "key" in f and "value" in f:
+                        fact = {
+                            "key": str(f["key"]),
+                            "value": str(f["value"]),
+                        }
+                        # Preserve scope and project if LLM provided them
+                        if "scope" in f:
+                            fact["scope"] = str(f["scope"])
+                        if "project" in f:
+                            fact["project"] = str(f["project"])
+                        results.append(fact)
+                return results
         except json.JSONDecodeError:
-            pass
+            logger.debug("FactExtractor: JSON parse failed: %s", content[:200])
         return []
 
     # ------------------------------------------------------------------
