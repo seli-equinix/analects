@@ -119,7 +119,7 @@ For each fact, also set:
            "project" for project-specific facts or "user_project" for user's project activity
 - "project": project name if scope is "project" or "user_project" (empty if "user")
 
-Return ONLY a JSON array of {{"key": "...", "value": "...", "scope": "...", "project": "..."}} objects.
+Return ONLY a JSON array of {"key": "...", "value": "...", "scope": "...", "project": "..."} objects.
 Return [] if no facts found. No markdown fences.""",
 
     "coder": """\
@@ -139,7 +139,7 @@ For each fact, also set:
            "project" for project-specific facts or "user_project" for user's project activity
 - "project": project name if scope is "project" or "user_project" (empty if "user")
 
-Return ONLY a JSON array of {{"key": "...", "value": "...", "scope": "...", "project": "..."}} objects.
+Return ONLY a JSON array of {"key": "...", "value": "...", "scope": "...", "project": "..."} objects.
 Return [] if no facts found. No markdown fences.""",
 
     "search": """\
