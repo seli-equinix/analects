@@ -40,7 +40,7 @@
 
   .category { padding: 8px 24px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--cyan); background: rgba(57,210,192,0.05); border-bottom: 1px solid var(--border); }
 
-  .test-row { display: grid; grid-template-columns: 40px 1fr 100px 80px 100px 80px 60px 180px; align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border); gap: 8px; }
+  .test-row { display: grid; grid-template-columns: 40px 1fr minmax(80px, auto) minmax(70px, auto) minmax(80px, auto) minmax(60px, auto) 50px minmax(140px, auto); align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border); gap: 8px; }
   .history-bar { display: flex; gap: 3px; align-items: center; }
   .history-dot { width: 8px; height: 8px; border-radius: 50%; cursor: pointer; transition: transform 0.15s; }
   .history-dot:hover { transform: scale(1.5); }
@@ -555,6 +555,9 @@ function statusBadge(s) {
   if (s.status === 'failed') return '<span class="badge badge-fail">Fail</span>';
   if (s.status === 'running') return '<span class="badge badge-run">Running</span>';
   if (s.status === 'pending' || s.status === 'created') return '<span class="badge badge-run">Pending</span>';
+  if (s.status === 'waiting_for_resource') return '<span class="badge badge-run">Queued</span>';
+  if (s.status === 'canceled') return '<span class="badge badge-never">Canceled</span>';
+  if (s.status === 'skipped') return '<span class="badge badge-never">Skipped</span>';
   return `<span class="badge badge-never">${s.status}</span>`;
 }
 
