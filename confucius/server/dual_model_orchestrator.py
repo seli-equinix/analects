@@ -437,12 +437,47 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 "cca.research.brief_length", len(self._research_brief)
             )
 
+            # Enrich with OpenInference input message attributes so
+            # Phoenix renders this as a proper LLM conversation span.
+            # LangChain's ChatOpenAI bypasses OpenAIInstrumentor, so
+            # we must set these manually.
+            try:
+                from openinference.instrumentation.llm import (
+                    get_llm_input_message_attributes,
+                    get_llm_output_message_attributes,
+                    Message,
+                )
+                oi_msgs = []
+                for m in messages[-6:]:  # Last 6 messages to avoid huge spans
+                    role = "user" if m.type == "human" else "assistant" if m.type == "ai" else "system"
+                    content = m.content if isinstance(m.content, str) else str(m.content)
+                    oi_msgs.append(Message(role=role, content=content[:500]))
+                for k, v in get_llm_input_message_attributes(oi_msgs).items():
+                    span.set_attribute(k, v)
+            except Exception:
+                # OpenInference enrichment is best-effort
+                pass
+
             try:
                 response = await context.invoke(chat, messages)
                 response = await self.on_llm_response(response, context)
                 result = await self._process_response(response, context)
 
                 span.set_attribute(OUTPUT_VALUE, str(result)[:500] if result else "")
+
+                # Set output message for Phoenix LLM span rendering
+                try:
+                    from openinference.instrumentation.llm import (
+                        get_llm_output_message_attributes,
+                        Message,
+                    )
+                    out_content = str(result)[:1000] if result else ""
+                    out_msg = Message(role="assistant", content=out_content)
+                    for k, v in get_llm_output_message_attributes(out_msg).items():
+                        span.set_attribute(k, v)
+                except Exception:
+                    pass
+
                 span.set_status(StatusCode.OK)
                 return result
             except Exception as e:
