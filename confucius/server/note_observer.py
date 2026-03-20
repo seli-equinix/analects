@@ -57,21 +57,40 @@ _NOTE_SEMAPHORE = asyncio.Semaphore(2)
 # ---------------------------------------------------------------------------
 # Extraction prompt (lightweight — no tool use, just JSON output)
 # ---------------------------------------------------------------------------
-EXTRACTION_SYSTEM_PROMPT: str = """\
+EXTRACTION_SYSTEM_TEMPLATE: str = """\
 You are a coding session observer. Extract key insights from this conversation.
+
+Known projects in this workspace: {project_names}
 
 Return ONLY a JSON array of notes. Each note has:
 - "content": The insight (1-3 sentences, specific and actionable)
 - "type": One of "insight", "pattern", "pitfall", "technique", "fact", "preference"
 - "tags": List of relevant keywords
+- "scope": One of "user", "project", or "user_project"
+- "project": Project name if scope is "project" or "user_project" (empty string if scope is "user")
+
+Scope rules:
+- "user": Personal preferences, coding style, employer, role, skills, tools the
+  user prefers. These follow the user across ALL projects. Use this when the
+  content is about WHO the person is, not about any specific code or project.
+- "project": Facts about how a project works — architecture, code patterns,
+  deployment, known bugs, file structure, dependencies. These are TRUE about
+  the PROJECT and should be visible to ALL users working on that project.
+  IMPORTANT: If the content mentions a known project name AND describes something
+  about the code, architecture, or infrastructure — use "project" scope.
+  When in doubt between "project" and "user_project", prefer "project" —
+  it is better to share knowledge than to hide it.
+- "user_project": The user's CURRENT ACTIVITY within a specific project — tasks
+  they are working on, their TODO list, their in-progress investigation. This is
+  temporary work-in-progress that only matters to this user on this project.
 
 Rules:
 - Extract technical insights that required effort to discover
-- Extract user preferences, style choices, and workflow habits ("preference" type)
-- Extract personal/project facts: names, tools, employers, project details ("fact" type)
+- Extract user preferences, style choices, and workflow habits
+- Extract personal/project facts: names, tools, employers, project details
+- Bugs, issues, and architectural observations are ALWAYS "project" scope (not user_project)
 - Skip routine API usage or well-documented standard library patterns
 - 0-5 notes per conversation (empty array [] if truly nothing noteworthy)
-- Be specific — include file names, function names, error messages when available
 
 Return valid JSON only, no markdown fences."""
 
@@ -95,7 +114,12 @@ Priority facts for infrastructure context:
 
 Also extract if mentioned: employer, role, team, project, preference
 
-Return ONLY a JSON array of {"key": "...", "value": "..."} objects.
+For each fact, also set:
+- "scope": "user" for personal facts (employer, role, preference, skill) or
+           "project" for project-specific facts or "user_project" for user's project activity
+- "project": project name if scope is "project" or "user_project" (empty if "user")
+
+Return ONLY a JSON array of {{"key": "...", "value": "...", "scope": "...", "project": "..."}} objects.
 Return [] if no facts found. No markdown fences.""",
 
     "coder": """\
@@ -110,7 +134,12 @@ Priority facts for coding context:
 
 Also extract if mentioned: employer, role, infrastructure, registry, deployment
 
-Return ONLY a JSON array of {"key": "...", "value": "..."} objects.
+For each fact, also set:
+- "scope": "user" for personal facts (employer, role, preference, skill) or
+           "project" for project-specific facts or "user_project" for user's project activity
+- "project": project name if scope is "project" or "user_project" (empty if "user")
+
+Return ONLY a JSON array of {{"key": "...", "value": "...", "scope": "...", "project": "..."}} objects.
 Return [] if no facts found. No markdown fences.""",
 
     "search": """\
@@ -492,10 +521,21 @@ class NoteObserver:
             return [], None
 
         try:
+            # Build dynamic prompt with known project names
+            try:
+                from ..core.config import get_workspace_config
+                ws_cfg = get_workspace_config()
+                project_names = ", ".join(ws_cfg.all_project_names) or "none configured"
+            except Exception:
+                project_names = "none configured"
+            system_prompt = EXTRACTION_SYSTEM_TEMPLATE.format(
+                project_names=project_names,
+            )
+
             response = await self._openai_client.chat.completions.create(
                 model=self._llm_model,
                 messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": (
@@ -641,16 +681,29 @@ class NoteObserver:
         preferences, tools, and project facts are discoverable via
         semantic note search across sessions.
 
-        Note: Stores directly to Qdrant without the ``_user_exists()``
-        guard that ``_store_notes_to_qdrant()`` uses.  The fact was
-        extracted from a real conversation — it should persist even if
-        the user profile is deleted during test cleanup or account
-        removal.  Orphaned notes are cleaned up separately.
+        Uses scope/project from the LLM extraction when available,
+        falling back to rules-based classification.
+
+        Stores directly to Qdrant without the ``_user_exists()``
+        guard — facts persist even if the user profile is deleted
+        during cleanup.
         """
         if self._qdrant is None or self._http_client is None:
             return
 
         content = f"{fact['key']}: {fact['value']}"
+
+        # Use LLM-provided scope/project if available, else classify
+        scope = fact.get("scope", "")
+        project = fact.get("project", "")
+        if not scope:
+            if fact["key"] in ("preference", "employer", "role", "skill", "alias"):
+                scope = "user"
+            elif project:
+                scope = "project"
+            else:
+                scope = "user"
+
         note_type = "preference" if fact["key"] == "preference" else "fact"
         tags = [fact["key"], route]
 
@@ -670,12 +723,14 @@ class NoteObserver:
                 vector=embeddings[0],
                 payload={
                     "content": content,
-                    "type": note_type,
+                    "note_type": note_type,
                     "tags": tags,
                     "session_id": session_id,
                     "user_id": user_id,
                     "source": "fact_extractor",
-                    "created_at": datetime.now().isoformat(),
+                    "scope": scope,
+                    "project": project,
+                    "timestamp": datetime.now().isoformat(),
                 },
             )
             await self._qdrant.upsert(
@@ -684,8 +739,8 @@ class NoteObserver:
                 wait=True,
             )
             logger.info(
-                "Stored fact as note: %s (user=%s, session=%s)",
-                content[:80], user_id, session_id,
+                "Stored fact as note: %s (scope=%s, project=%s, user=%s)",
+                content[:60], scope, project or "none", user_id,
             )
         except Exception as e:
             logger.warning("Failed to store fact as note: %s", e)
@@ -745,6 +800,8 @@ class NoteObserver:
                         "tags": note.get("tags", []),
                         "source": "per_request",
                         "project_context": project_context,
+                        "scope": note.get("scope", "user"),
+                        "project": note.get("project", ""),
                     },
                 )
                 points.append(point)
@@ -935,15 +992,23 @@ class NoteObserver:
         self,
         query: str,
         user_id: Optional[str] = None,
+        projects: Optional[List[str]] = None,
         n_results: int = 5,
         min_score: float = 0.2,
     ) -> List[Dict[str, Any]]:
-        """Semantic search over extracted notes.
+        """Semantic search over extracted notes with project-aware scoping.
 
-        Returns a list of note payloads sorted by relevance.
+        Returns notes visible to the user based on scope:
+        - scope=user: only the creating user sees them (any project context)
+        - scope=project: all users see them when on that project
+        - scope=user_project: only the creating user, only on that project
+        - legacy (no scope): treated as user-scoped
         """
         if self._qdrant is None:
             return []
+
+        if not user_id:
+            return []  # Anonymous users get no notes
 
         embeddings = await self._embed([query])
         if not embeddings:
@@ -953,20 +1018,59 @@ class NoteObserver:
             from qdrant_client.http.models import (
                 FieldCondition,
                 Filter,
+                IsNullCondition,
                 MatchValue,
             )
 
-            # Build optional filter
-            q_filter = None
-            if user_id:
-                q_filter = Filter(
-                    must=[
-                        FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id),
-                        )
-                    ]
-                )
+            should_conditions: list = []
+
+            # 1. User's personal notes (scope=user) — always visible
+            should_conditions.append(
+                Filter(must=[
+                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                    FieldCondition(key="scope", match=MatchValue(value="user")),
+                ])
+            )
+
+            # 2. User's project-specific notes (scope=user_project)
+            if projects:
+                for proj in projects:
+                    should_conditions.append(
+                        Filter(must=[
+                            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                            FieldCondition(key="scope", match=MatchValue(value="user_project")),
+                            FieldCondition(key="project", match=MatchValue(value=proj)),
+                        ])
+                    )
+
+            # 3. Project-shared notes (scope=project) — from ANY user
+            if projects:
+                for proj in projects:
+                    should_conditions.append(
+                        Filter(must=[
+                            FieldCondition(key="scope", match=MatchValue(value="project")),
+                            FieldCondition(key="project", match=MatchValue(value=proj)),
+                        ])
+                    )
+
+            # 4. Legacy notes (no scope field) — user-scoped
+            should_conditions.append(
+                Filter(must=[
+                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                    IsNullCondition(is_null=FieldCondition(key="scope", match=MatchValue(value=""))),
+                ])
+            )
+
+            # Fallback: also include notes that have user_id match but
+            # scope might be missing (for notes stored before this change)
+            should_conditions.append(
+                Filter(must=[
+                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                    FieldCondition(key="source", match=MatchValue(value="fact_extractor")),
+                ])
+            )
+
+            q_filter = Filter(should=should_conditions)
 
             response = await self._qdrant.query_points(
                 collection_name=NOTES_COLLECTION,

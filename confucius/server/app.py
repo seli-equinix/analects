@@ -598,6 +598,57 @@ def _read_session_memory_files(session_id: str) -> Optional[List[Dict[str, str]]
     return files or None
 
 
+def _detect_active_projects(
+    user_message: str,
+    session_context: Optional[Dict] = None,
+    route_summary: str = "",
+) -> List[str]:
+    """Detect which project(s) the user is working on.
+
+    Priority:
+    1. User explicitly mentions a known project name in their message
+    2. Router extracted project context in its task summary
+    3. Session previously established project context
+    4. Default to all configured projects
+    """
+    try:
+        from ..core.config import get_workspace_config
+        ws_cfg = get_workspace_config()
+    except Exception:
+        return []
+
+    known = {r.name.lower(): r.name for r in ws_cfg.repos}
+    if not known:
+        return []
+
+    projects: List[str] = []
+
+    # 1. Check user message for project names
+    msg_lower = user_message.lower()
+    for proj_lower, proj_name in known.items():
+        if proj_lower in msg_lower:
+            projects.append(proj_name)
+
+    # 2. Check router task summary
+    if route_summary:
+        summary_lower = route_summary.lower()
+        for proj_lower, proj_name in known.items():
+            if proj_lower in summary_lower and proj_name not in projects:
+                projects.append(proj_name)
+
+    # 3. Session's previously established context
+    if session_context:
+        for p in session_context.get("active_projects", []):
+            if p not in projects:
+                projects.append(p)
+
+    # 4. Default: all configured projects
+    if not projects:
+        projects = [r.name for r in ws_cfg.repos]
+
+    return projects
+
+
 async def _run_note_observer_with_context(
     ctx: Any,
     observer: NoteObserver,
@@ -868,9 +919,15 @@ async def _handle_chat_completions(
             note_query = user_message
             if user and user.display_name:
                 note_query = f"{user.display_name} preferences style: {user_message}"
+            active_projects = _detect_active_projects(
+                user_message,
+                session_context=getattr(session, "context", None),
+                route_summary=route.task_summary if route else "",
+            )
             relevant_notes = await note_observer.search_notes(
                 query=note_query,
                 user_id=user.user_id,
+                projects=active_projects,
                 n_results=3,
                 min_score=0.15,
             )
