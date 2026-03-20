@@ -1018,32 +1018,22 @@ class NoteObserver:
             from qdrant_client.http.models import (
                 FieldCondition,
                 Filter,
-                IsNullCondition,
                 MatchValue,
             )
 
             should_conditions: list = []
 
-            # 1. User's personal notes (scope=user) — always visible
+            # 1. User's own notes (any scope) — always visible to the owner.
+            #    This catches: scope=user, scope=user_project, legacy (no scope),
+            #    and fact_extractor notes.
             should_conditions.append(
                 Filter(must=[
                     FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-                    FieldCondition(key="scope", match=MatchValue(value="user")),
                 ])
             )
 
-            # 2. User's project-specific notes (scope=user_project)
-            if projects:
-                for proj in projects:
-                    should_conditions.append(
-                        Filter(must=[
-                            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-                            FieldCondition(key="scope", match=MatchValue(value="user_project")),
-                            FieldCondition(key="project", match=MatchValue(value=proj)),
-                        ])
-                    )
-
-            # 3. Project-shared notes (scope=project) — from ANY user
+            # 2. Project-shared notes (scope=project) — from ANY user,
+            #    visible when the searcher is working on that project.
             if projects:
                 for proj in projects:
                     should_conditions.append(
@@ -1052,23 +1042,6 @@ class NoteObserver:
                             FieldCondition(key="project", match=MatchValue(value=proj)),
                         ])
                     )
-
-            # 4. Legacy notes (no scope field) — user-scoped
-            should_conditions.append(
-                Filter(must=[
-                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-                    IsNullCondition(is_null=FieldCondition(key="scope", match=MatchValue(value=""))),
-                ])
-            )
-
-            # Fallback: also include notes that have user_id match but
-            # scope might be missing (for notes stored before this change)
-            should_conditions.append(
-                Filter(must=[
-                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-                    FieldCondition(key="source", match=MatchValue(value="fact_extractor")),
-                ])
-            )
 
             q_filter = Filter(should=should_conditions)
 
