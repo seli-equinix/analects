@@ -84,6 +84,13 @@ MAX_CONSECUTIVE_8B_RESEARCH = 8
 PROGRESS_EXTENSION_CHUNK = 10
 ABSOLUTE_MAX_ITERATIONS = 200
 
+# 8B context window pre-flight check.  If accumulated context exceeds
+# this estimated token count, skip the 8B and route directly to 80B.
+# Prevents wasted 400-error round-trips to vLLM.
+_8B_CONTEXT_LIMIT = 32768    # vLLM MAX_MODEL_LEN for note-taker
+_8B_RESERVED = 6000          # System prompt + tool schemas + output budget
+_8B_MAX_INPUT = _8B_CONTEXT_LIMIT - _8B_RESERVED  # ~26768 tokens
+
 # Max 8B→80B research cycles before forcing a final answer.
 # Each cycle = 8B does research → 80B evaluates → 80B calls more tools → repeat.
 # After this many cycles, a "stop researching" message is injected.
@@ -300,10 +307,45 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     )
                     self._consecutive_8b_iters = 0
                     return False
+
+                # Context size gate: 8B qualifies for research, but is the
+                # accumulated context too large for its 32K window?
+                # Check BEFORE committing to avoid a wasted 400 error.
+                context_chars = self._estimate_context_chars()
+                estimated_tokens = context_chars // 3  # conservative
+                if estimated_tokens > _8B_MAX_INPUT:
+                    logger.info(
+                        "Dual-model: 8B qualified but context too large "
+                        "(%d est. tokens > %d limit) — routing to 80B",
+                        estimated_tokens, _8B_MAX_INPUT,
+                    )
+                    return False
+
                 return True
         # Non-research tools or no tools → 80B; reset consecutive counter
         self._consecutive_8b_iters = 0
         return False
+
+    def _estimate_context_chars(self) -> int:
+        """Estimate total character count of accumulated context.
+
+        Counts all messages in memory (user, assistant, tool results)
+        to predict whether the 8B model's context window will overflow.
+        Fast — no tokenizer call, just character counting (~1ms).
+        """
+        total = 0
+        try:
+            messages = self._context.memory_manager.memory.messages
+            for msg in messages:
+                content = msg.content if isinstance(msg.content, str) else ""
+                total += len(content)
+                if hasattr(msg, "additional_kwargs") and msg.additional_kwargs:
+                    for v in msg.additional_kwargs.values():
+                        if isinstance(v, str):
+                            total += len(v)
+        except Exception:
+            pass
+        return total
 
     async def get_llm_params(self) -> LLMParams:
         """Pick model based on iteration context.
@@ -366,6 +408,12 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
             span.set_attribute("cca.dual_model.using_fast", self._using_fast_model)
             span.set_attribute("cca.dual_model.reason", self._model_reason)
             span.set_attribute("cca.dual_model.quality_gate_active", self._force_primary)
+
+            # Context size for debugging model routing decisions
+            context_chars = self._estimate_context_chars()
+            span.set_attribute("cca.dual_model.context_chars", context_chars)
+            span.set_attribute("cca.dual_model.context_est_tokens", context_chars // 3)
+            span.set_attribute("cca.dual_model.8b_limit", _8B_MAX_INPUT)
             span.set_attribute(
                 "cca.dual_model.consecutive_failures",
                 self._consecutive_fast_failures,
