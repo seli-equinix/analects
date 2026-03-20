@@ -114,13 +114,9 @@ Priority facts for infrastructure context:
 
 Also extract if mentioned: employer, role, team, project, preference
 
-For each fact, also set:
-- "scope": "user" for personal facts (employer, role, preference, skill) or
-           "project" for project-specific facts or "user_project" for user's project activity
-- "project": project name if scope is "project" or "user_project" (empty if "user")
+Example: [{"key": "infrastructure", "value": "Kubernetes 1.29 on 5 nodes"}, {"key": "tool", "value": "Terraform"}]
 
-Return ONLY a JSON array of {"key": "...", "value": "...", "scope": "...", "project": "..."} objects.
-Return [] if no facts found. No markdown fences.""",
+Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "coder": """\
 You are a developer profile extractor. From the USER's message,
@@ -134,13 +130,9 @@ Priority facts for coding context:
 
 Also extract if mentioned: employer, role, infrastructure, registry, deployment
 
-For each fact, also set:
-- "scope": "user" for personal facts (employer, role, preference, skill) or
-           "project" for project-specific facts or "user_project" for user's project activity
-- "project": project name if scope is "project" or "user_project" (empty if "user")
+Example: [{"key": "tool", "value": "Python"}, {"key": "preference", "value": "concise code with type hints"}]
 
-Return ONLY a JSON array of {"key": "...", "value": "...", "scope": "...", "project": "..."} objects.
-Return [] if no facts found. No markdown fences.""",
+Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "search": """\
 You are a research profile extractor. From the USER's message,
@@ -153,8 +145,9 @@ Priority facts for search context:
 
 Also extract if mentioned: employer, role, team, infrastructure
 
-Return ONLY a JSON array of {"key": "...", "value": "..."} objects.
-Return [] if no facts found. No markdown fences.""",
+Example: [{"key": "project", "value": "search engine rewrite"}, {"key": "tool", "value": "Elasticsearch"}]
+
+Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "user": """\
 You are a personal profile extractor. From the USER's message,
@@ -170,8 +163,9 @@ Priority facts for user context:
 
 Also extract if mentioned: infrastructure, project, tool, deployment
 
-Return ONLY a JSON array of {"key": "...", "value": "..."} objects.
-Return [] if no facts found. No markdown fences.""",
+Example: [{"key": "employer", "value": "Equinix"}, {"key": "skill", "value": "Python"}, {"key": "preference", "value": "verbose logging"}]
+
+Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 }
 
 _DEFAULT_FACT_PROMPT: str = """\
@@ -181,7 +175,9 @@ extract any personal or work facts they shared.
 Valid keys: employer, role, team, infrastructure, registry,
 deployment, tool, project, preference
 
-Return ONLY a JSON array of {"key": "...", "value": "..."} objects.
+Example: [{"key": "employer", "value": "Acme Corp"}, {"key": "tool", "value": "Docker"}]
+
+Return ONLY a JSON array.
 Return [] if no facts found. No markdown fences."""
 
 
