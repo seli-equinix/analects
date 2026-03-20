@@ -448,10 +448,10 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                     Message,
                 )
                 oi_msgs = []
-                for m in messages[-6:]:  # Last 6 messages to avoid huge spans
+                for m in messages:
                     role = "user" if m.type == "human" else "assistant" if m.type == "ai" else "system"
                     content = m.content if isinstance(m.content, str) else str(m.content)
-                    oi_msgs.append(Message(role=role, content=content[:500]))
+                    oi_msgs.append(Message(role=role, content=content))
                 for k, v in get_llm_input_message_attributes(oi_msgs).items():
                     span.set_attribute(k, v)
             except Exception:
@@ -471,7 +471,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                         get_llm_output_message_attributes,
                         Message,
                     )
-                    out_content = str(result)[:1000] if result else ""
+                    out_content = str(result) if result else ""
                     out_msg = Message(role="assistant", content=out_content)
                     for k, v in get_llm_output_message_attributes(out_msg).items():
                         span.set_attribute(k, v)
