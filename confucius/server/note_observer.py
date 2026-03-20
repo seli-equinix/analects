@@ -898,100 +898,117 @@ class NoteObserver:
 
         Route-aware: uses different extraction prompts based on the
         LLM's current role (coder, infrastructure, search, user).
+        Wrapped in a Phoenix span so it's visible in traces.
         Runs as async background task with temp=0 for determinism.
         """
         if not self._openai_client or not user_id:
             return
 
-        try:
-            prompt = _ROUTE_FACT_PROMPTS.get(route, _DEFAULT_FACT_PROMPT)
+        tracer = get_tracer()
+        with tracer.start_as_current_span("cca.fact_extractor") as span:
+            span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
+            span.set_attribute(LLM_MODEL_NAME, self._llm_model)
+            span.set_attribute("cca.fact_extractor.route", route)
+            span.set_attribute("cca.fact_extractor.session_id", session_id)
+            span.set_attribute("cca.fact_extractor.user_id", user_id)
+            span.set_attribute(INPUT_VALUE, user_message[:500])
 
-            response = await self._openai_client.chat.completions.create(
-                model=self._llm_model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=0.0,
-                max_tokens=512,
-            )
+            try:
+                prompt = _ROUTE_FACT_PROMPTS.get(route, _DEFAULT_FACT_PROMPT)
 
-            raw_content = response.choices[0].message.content or ""
-            content = self._strip_thinking(raw_content)
-            logger.info(
-                "FactExtractor[%s]: LLM returned %d chars for session %s: %s",
-                route, len(content), session_id, content[:200],
-            )
-            facts = self._parse_facts_json(content)
-            if not facts:
+                response = await self._openai_client.chat.completions.create(
+                    model=self._llm_model,
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=0.0,
+                    max_tokens=512,
+                )
+
+                raw_content = response.choices[0].message.content or ""
+                content = self._strip_thinking(raw_content)
                 logger.info(
-                    "FactExtractor[%s]: no facts parsed from LLM response "
-                    "(session=%s, raw=%s)",
-                    route, session_id, content[:300],
+                    "FactExtractor[%s]: LLM returned %d chars for session %s: %s",
+                    route, len(content), session_id, content[:200],
                 )
-                return
+                facts = self._parse_facts_json(content)
+                if not facts:
+                    logger.info(
+                        "FactExtractor[%s]: no facts parsed from LLM response "
+                        "(session=%s, raw=%s)",
+                        route, session_id, content[:300],
+                    )
+                    span.set_attribute("cca.fact_extractor.facts_count", 0)
+                    return
 
-            # Filter out garbage facts (LLM sometimes returns "none"/"unknown")
-            _GARBAGE_VALUES = {"none", "unknown", "n/a", "null", ""}
-            facts = [
-                f for f in facts
-                if f["value"].strip().lower() not in _GARBAGE_VALUES
-            ]
-            if not facts:
-                return
+                # Filter out garbage facts
+                _GARBAGE_VALUES = {"none", "unknown", "n/a", "null", ""}
+                facts = [
+                    f for f in facts
+                    if f["value"].strip().lower() not in _GARBAGE_VALUES
+                ]
+                if not facts:
+                    span.set_attribute("cca.fact_extractor.facts_count", 0)
+                    return
 
-            # Always store facts as notes in cca_notes FIRST.
-            # Notes persist even if the user profile is deleted — they
-            # capture session knowledge that search_notes can recall.
-            for fact in facts:
-                await self._store_fact_as_note(
-                    fact, user_id, session_id, route,
-                )
-
-            # Then store to user profile (may be skipped if user deleted)
-            user_exists = await self._user_exists(user_id)
-            if not user_exists:
-                logger.info(
-                    "FactExtractor[%s]: stored %d notes but skipping "
-                    "profile update — user %s deleted",
-                    route, len(facts), user_id,
-                )
-            else:
-                stored = 0
+                # Always store facts as notes in cca_notes FIRST.
                 for fact in facts:
-                    if stored > 0 and stored % 3 == 0:
-                        if not await self._user_exists(user_id):
-                            logger.info(
-                                "Stopping profile fact storage mid-loop: "
-                                "user %s deleted", user_id,
-                            )
-                            break
-
-                    temp_session = Session(
-                        session_id=session_id,
-                        user_id=user_id,
-                        identified=True,
+                    await self._store_fact_as_note(
+                        fact, user_id, session_id, route,
                     )
-                    await session_mgr.remember_user_fact(
-                        temp_session, fact["key"], fact["value"],
+
+                # Then store to user profile (may be skipped if user deleted)
+                user_exists = await self._user_exists(user_id)
+                if not user_exists:
+                    logger.info(
+                        "FactExtractor[%s]: stored %d notes but skipping "
+                        "profile update — user %s deleted",
+                        route, len(facts), user_id,
                     )
-                    stored += 1
+                else:
+                    stored = 0
+                    for fact in facts:
+                        if stored > 0 and stored % 3 == 0:
+                            if not await self._user_exists(user_id):
+                                logger.info(
+                                    "Stopping profile fact storage mid-loop: "
+                                    "user %s deleted", user_id,
+                                )
+                                break
 
-            logger.info(
-                "FactExtractor[%s]: stored %d facts for user %s: %s",
-                route,
-                len(facts),
-                user_id,
-                [(f["key"], f["value"]) for f in facts],
-            )
+                        temp_session = Session(
+                            session_id=session_id,
+                            user_id=user_id,
+                            identified=True,
+                        )
+                        await session_mgr.remember_user_fact(
+                            temp_session, fact["key"], fact["value"],
+                        )
+                        stored += 1
 
-        except Exception as e:
-            logger.warning(
-                "Fact extraction failed (route=%s, session=%s): %s",
-                route,
-                session_id,
-                e,
-            )
+                logger.info(
+                    "FactExtractor[%s]: stored %d facts for user %s: %s",
+                    route,
+                    len(facts),
+                    user_id,
+                    [(f["key"], f["value"]) for f in facts],
+                )
+                span.set_attribute(
+                    OUTPUT_VALUE,
+                    str([(f["key"], f["value"]) for f in facts])[:500],
+                )
+                span.set_attribute("cca.fact_extractor.facts_count", len(facts))
+                span.set_status(StatusCode.OK)
+
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e)[:200])
+                logger.warning(
+                    "Fact extraction failed (route=%s, session=%s): %s",
+                    route,
+                    session_id,
+                    e,
+                )
 
     @staticmethod
     def _parse_facts_json(content: str) -> List[Dict[str, str]]:

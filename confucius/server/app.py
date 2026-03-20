@@ -649,6 +649,32 @@ def _detect_active_projects(
     return projects
 
 
+async def _run_fact_extractor_with_context(
+    ctx: Any,
+    observer: NoteObserver,
+    user_message: str,
+    user_id: str,
+    session_id: str,
+    session_mgr: Any,
+    route: str,
+) -> None:
+    """Run FactExtractor with propagated OTel span context.
+
+    Without this, the background task creates orphaned spans
+    disconnected from the parent request trace — invisible in Phoenix.
+    """
+    token = attach_context(ctx)
+    try:
+        await observer.extract_user_facts(
+            user_message, user_id, session_id,
+            session_mgr, route=route,
+        )
+    except Exception as e:
+        logger.warning("FactExtractor background task failed: %s", e)
+    finally:
+        detach_context(token)
+
+
 async def _run_note_observer_with_context(
     ctx: Any,
     observer: NoteObserver,
@@ -1126,10 +1152,14 @@ async def _handle_chat_completions(
                                             "Firing FactExtractor[%s] for user %s (session=%s)",
                                             route_name, user.user_id, session_id,
                                         )
-                                        asyncio.create_task(note_observer.extract_user_facts(
-                                            user_message, user.user_id, session_id,
-                                            user_session_mgr, route=route_name,
-                                        ))
+                                        asyncio.create_task(
+                                            _run_fact_extractor_with_context(
+                                                ctx, note_observer,
+                                                user_message, user.user_id,
+                                                session_id, user_session_mgr,
+                                                route=route_name,
+                                            )
+                                        )
                                     else:
                                         logger.info(
                                             "Skipping FactExtractor: session not identified "
@@ -1229,10 +1259,14 @@ async def _handle_chat_completions(
                                         "Firing FactExtractor[%s] for user %s (session=%s)",
                                         route_name, user.user_id, session_id,
                                     )
-                                    asyncio.create_task(note_observer.extract_user_facts(
-                                        user_message, user.user_id, session_id,
-                                        user_session_mgr, route=route_name,
-                                    ))
+                                    asyncio.create_task(
+                                        _run_fact_extractor_with_context(
+                                            ctx, note_observer,
+                                            user_message, user.user_id,
+                                            session_id, user_session_mgr,
+                                            route=route_name,
+                                        )
+                                    )
                                 else:
                                     logger.info(
                                         "Skipping FactExtractor: session not identified "
