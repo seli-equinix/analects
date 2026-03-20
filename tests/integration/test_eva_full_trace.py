@@ -306,7 +306,7 @@ class TestEvaFullTrace:
                 "from how many source files, and confirm the output file "
                 "path and size."
             )
-            r3 = cca.chat(msg3, session_id=sid, idle_timeout=120)
+            r3 = cca.chat(msg3, session_id=sid)
             evaluate_response(r3, msg3, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t3_response", r3.content[:500])

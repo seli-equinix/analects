@@ -150,6 +150,42 @@ class CCAClient:
         except Exception as e:
             return {"status": "unreachable", "error": str(e)}
 
+    def check_backends(self) -> Dict[str, Any]:
+        """Check health of CCA + vLLM backends. Returns errors dict.
+
+        Use after each test turn to detect backend failures early
+        instead of waiting for a hardcoded timeout.
+        """
+        issues: Dict[str, Any] = {}
+
+        # CCA server
+        cca_health = self.health()
+        if cca_health.get("status") != "healthy":
+            issues["cca"] = cca_health.get("error", "unhealthy")
+
+        # vLLM coder (Spark2:8000)
+        vllm_url = os.environ.get("VLLM_BASE_URL", "http://192.168.4.208:8000/v1")
+        try:
+            resp = self._client.get(
+                f"{vllm_url[:-3]}/health", timeout=5,
+            )
+            if resp.status_code != 200:
+                issues["vllm_coder"] = f"HTTP {resp.status_code}"
+        except Exception as e:
+            issues["vllm_coder"] = str(e)
+
+        # vLLM notetaker (Spark1:8400)
+        try:
+            resp = self._client.get(
+                "http://192.168.4.205:8400/health", timeout=5,
+            )
+            if resp.status_code != 200:
+                issues["vllm_notetaker"] = f"HTTP {resp.status_code}"
+        except Exception as e:
+            issues["vllm_notetaker"] = str(e)
+
+        return issues
+
     def chat(
         self,
         message: str,

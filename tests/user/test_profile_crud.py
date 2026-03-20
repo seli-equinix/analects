@@ -237,13 +237,16 @@ class TestProfileCRUD:
             # This is aspirational — fact overwrite may or may not work
             # depending on LLM extraction quality. Log but don't fail.
 
-            # Wait for NoteObserver to process session 3
-            time.sleep(10)
-
-            # ── Qdrant cca_notes: notes accumulated across sessions ──
-            notes_s3 = cca.search_notes(
-                f"{name} skills update", user_id=user_id,
+            # Poll for notes instead of fixed sleep — checks backend health
+            from tests.helpers.polling import wait_for_notes
+            notes_s3 = wait_for_notes(
+                cca, f"{name} skills update", user_id=user_id,
             )
+            if not notes_s3:
+                # Fallback: try broader search
+                notes_s3 = cca.search_notes(
+                    f"{name} skills update", user_id=user_id,
+                )
             trace_test.set_attribute("cca.test.s3_notes_count", len(notes_s3))
 
             # ═══════════════════════════════════════════════════════

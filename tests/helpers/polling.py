@@ -1,8 +1,9 @@
 """Polling helpers for async CCA subsystems.
 
-NoteObserver is fire-and-forget async: 8-14s locally, 15-20s in CI
-(semaphore contention + Docker network).  Fixed ``time.sleep()`` calls
-in tests are flaky — polling avoids false negatives.
+NoteObserver and FactExtractor are fire-and-forget async tasks.
+Instead of fixed sleeps, these helpers poll with backend health
+checks — if a backend is down, they fail fast with a clear error
+instead of waiting the full timeout.
 """
 
 from __future__ import annotations
@@ -18,10 +19,14 @@ def wait_for_notes(
     cca: CCAClient,
     query: str,
     user_id: str | None = None,
-    max_wait: int = 45,
+    max_wait: int = 60,
     interval: int = 3,
 ) -> list[dict]:
     """Poll ``GET /v1/notes/search`` until results appear or timeout.
+
+    Checks backend health on each poll — if vLLM or CCA goes down,
+    fails immediately with a descriptive error instead of waiting
+    the full max_wait.
 
     Args:
         cca: CCAClient instance.
@@ -32,10 +37,26 @@ def wait_for_notes(
 
     Returns:
         List of note dicts, or empty list on timeout.
+
+    Raises:
+        RuntimeError: If a backend is unhealthy during polling.
     """
-    for _ in range(max_wait // interval):
+    elapsed = 0
+    while elapsed < max_wait:
         time.sleep(interval)
+        elapsed += interval
+
+        # Check backends every 4th poll (~12s) to avoid overhead
+        if elapsed % (interval * 4) == 0:
+            issues = cca.check_backends()
+            if issues:
+                raise RuntimeError(
+                    f"Backend unhealthy during note polling "
+                    f"(waited {elapsed}s): {issues}"
+                )
+
         notes = cca.search_notes(query, user_id=user_id)
         if notes:
             return notes
+
     return []

@@ -46,7 +46,7 @@ class TestCodebaseSearch:
                 "project. Search the codebase for functions related to "
                 "snapshots — how are VM snapshots created and managed?"
             )
-            r1 = cca.chat(msg1, session_id=sid, idle_timeout=120)
+            r1 = cca.chat(msg1, session_id=sid)
             evaluate_response(r1, msg1, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t1_response", r1.content[:500])
@@ -86,7 +86,7 @@ class TestCodebaseSearch:
                 "codebase. Which files handle VCenter session management? "
                 "I'm looking for the connection setup functions."
             )
-            r2 = cca.chat(msg2, session_id=sid, idle_timeout=120)
+            r2 = cca.chat(msg2, session_id=sid)
             evaluate_response(r2, msg2, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t2_response", r2.content[:500])
@@ -115,7 +115,7 @@ class TestCodebaseSearch:
                 "— how many other files depend on it? What would be impacted "
                 "if I changed its main functions?"
             )
-            r3 = cca.chat(msg3, session_id=sid, idle_timeout=120)
+            r3 = cca.chat(msg3, session_id=sid)
             evaluate_response(r3, msg3, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t3_response", r3.content[:500])

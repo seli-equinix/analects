@@ -74,9 +74,9 @@ class TestCrossSessionRecall:
             assert r2.content, "Session 1 Turn 2 returned empty"
 
             # ── Verify: NoteObserver extracted notes from Session 1 ──
-            # Wait for async NoteObserver to fire (fire-and-forget task)
-            time.sleep(12)
-            notes = cca.search_notes("Project Helios", user_id=user_id)
+            # Poll instead of fixed sleep — checks backend health while waiting
+            from tests.helpers.polling import wait_for_notes
+            notes = wait_for_notes(cca, "Project Helios", user_id=user_id)
             trace_test.set_attribute("cca.test.s1_note_count", len(notes))
             if notes:
                 notes_text = " ".join(

@@ -59,7 +59,7 @@ class TestProjectScopedNotes:
                 "and Linux code paths. Can you search the EVA codebase "
                 "for JobStart.ps1 and tell me about it?"
             )
-            r1 = cca.chat(msg1, session_id=sid, idle_timeout=120)
+            r1 = cca.chat(msg1, session_id=sid)
             evaluate_response(r1, msg1, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t1_response", r1.content[:500])
@@ -86,7 +86,7 @@ class TestProjectScopedNotes:
                 "What files are in the migration project? Don't look at "
                 "the EVA source code — I only need migration info."
             )
-            r2 = cca.chat(msg2, session_id=sid, idle_timeout=120)
+            r2 = cca.chat(msg2, session_id=sid)
             evaluate_response(r2, msg2, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t2_response", r2.content[:500])
@@ -97,7 +97,7 @@ class TestProjectScopedNotes:
                 "Search your notes for anything about 'state machine' or "
                 "'build routing'. What do we know?"
             )
-            r3 = cca.chat(msg3, session_id=sid, idle_timeout=120)
+            r3 = cca.chat(msg3, session_id=sid)
             evaluate_response(r3, msg3, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t3_response", r3.content[:500])
@@ -118,7 +118,7 @@ class TestProjectScopedNotes:
                 "your notes for 'state machine' — what did we learn about "
                 "the build routing?"
             )
-            r4 = cca.chat(msg4, session_id=sid, idle_timeout=120)
+            r4 = cca.chat(msg4, session_id=sid)
             evaluate_response(r4, msg4, trace_test, judge_model, "coder")
 
             trace_test.set_attribute("cca.test.t4_response", r4.content[:500])
