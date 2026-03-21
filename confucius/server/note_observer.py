@@ -540,6 +540,7 @@ class NoteObserver:
                 ],
                 temperature=self._temperature,
                 max_tokens=1024,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
 
             # Extract the LLM's response text
@@ -940,7 +941,8 @@ class NoteObserver:
                         {"role": "user", "content": user_message},
                     ],
                     temperature=0.0,
-                    max_tokens=512,
+                    max_tokens=1024,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
 
                 raw_content = response.choices[0].message.content or ""
