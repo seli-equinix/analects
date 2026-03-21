@@ -487,21 +487,22 @@ async function clearAll() {
     log.push(`Qdrant notes: ${testUserIds.size} user(s) cleared, ${kept} kept`);
   } catch(e) { log.push(`Qdrant notes: ${e.message}`); }
 
-  // 5. Redis: delete test sessions via CCA server
+  // 5. Redis + SessionPool: delete test sessions via CCA server
+  // The /sessions API truncates IDs with "...", so we delete by prefix
+  // pattern instead of individual IDs.
   try {
+    await fetch(`${CCA_API}/sessions`, {
+      method: 'DELETE', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prefix: 'test-'})
+    });
+    // Verify: check how many remain
     const sessResp = await fetch(`${CCA_API}/sessions`);
     const sessData = await sessResp.json();
-    const sessions = sessData.sessions || [];
-    const testSessions = sessions.filter(s => (s.session_id || s).toString().startsWith('test-'));
-    if (testSessions.length > 0) {
-      const ids = testSessions.map(s => s.session_id || s);
-      await fetch(`${CCA_API}/sessions`, {
-        method: 'DELETE', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({session_ids: ids})
-      });
-    }
-    log.push(`Redis: ${testSessions.length} test sessions deleted`);
-  } catch(e) { log.push(`Redis: ${e.message}`); }
+    const remaining = (sessData.sessions || []).filter(
+      s => (s.session_id || s).toString().startsWith('test-')
+    ).length;
+    log.push(`Sessions: ${remaining === 0 ? 'all cleared' : remaining + ' remaining (in-memory pool, will expire)'}`);
+  } catch(e) { log.push(`Sessions: ${e.message}`); }
 
   // 6. Workspace: delete test files
   try {
