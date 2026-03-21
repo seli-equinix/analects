@@ -13,13 +13,22 @@ Claude Code can read these to analyze test quality and suggest improvements.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
-REPORTS_DIR = Path(__file__).parent.parent / "reports"
+# In CI: write to /reports (volume-mounted to host tests/reports/)
+# Locally: write to tests/reports/ relative to this file
+if os.environ.get("CI"):
+    REPORTS_DIR = Path("/reports")
+else:
+    REPORTS_DIR = Path(__file__).parent / "reports"
+
+# Pipeline ID from GitLab CI — used to match reports to dashboard runs
+PIPELINE_ID = os.environ.get("CI_PIPELINE_ID", "local")
 
 
 def generate_test_report(
@@ -43,7 +52,7 @@ def generate_test_report(
     try:
         REPORTS_DIR.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-        filename = f"{test_name}_{timestamp}.md"
+        filename = f"P{PIPELINE_ID}_{test_name}_{timestamp}.md"
         filepath = REPORTS_DIR / filename
 
         lines: list[str] = []
@@ -58,6 +67,7 @@ def generate_test_report(
         lines.append(f"- **Tool Iterations**: {metrics.get('tool_iterations', 0)}")
         lines.append(f"- **Estimated Steps**: {metrics.get('estimated_steps', 0)}")
         lines.append(f"- **Timestamp**: {timestamp}")
+        lines.append(f"- **Pipeline**: #{PIPELINE_ID}")
         lines.append(f"- **Turns**: {len(turns)}")
 
         if metrics.get("nudge_skipped"):

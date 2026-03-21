@@ -6,3 +6,4 @@ __pycache__/
 config.toml
 infrastructure.toml
 docs/context-hub/dist/
+tests/reports/
