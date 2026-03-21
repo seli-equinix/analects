@@ -484,6 +484,13 @@ async function clearAll() {
     log.push(`Workspace: ${(data.deleted || []).length} files deleted`);
   } catch(e) { log.push(`Workspace: ${e.message}`); }
 
+  // 7. Reports: delete all .md test reports
+  try {
+    const r = await fetch(`${CCA_API}/workspace/files?prefix=reports/`, {method:'DELETE'});
+    const data = await r.json();
+    log.push(`Reports: ${(data.deleted || []).length} reports deleted`);
+  } catch(e) { log.push(`Reports: ${e.message}`); }
+
   // Reset dashboard state
   testStatus = {};
   phoenixData = {};
@@ -519,6 +526,13 @@ async function clearTest(name) {
       log.push('Phoenix: no project');
     }
   } catch(e) { log.push(`Phoenix: ${e.message}`); }
+
+  // 3. Reports: delete .md reports for this test
+  try {
+    const r = await fetch(`${CCA_API}/workspace/files?prefix=reports/${name}`, {method:'DELETE'});
+    const data = await r.json();
+    log.push(`Reports: ${(data.deleted || []).length} deleted`);
+  } catch(e) { log.push(`Reports: ${e.message}`); }
 
   // Reset this test's dashboard state
   delete testStatus[name];
