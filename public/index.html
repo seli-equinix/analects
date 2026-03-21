@@ -331,10 +331,20 @@ async function qdrantScroll(collection, limit = 500) {
 }
 
 async function qdrantDelete(collection, ids) {
+  // Point IDs from Qdrant are large integers that overflow JavaScript's
+  // Number precision (>2^53). Instead of deleting by ID, we delete by
+  // filter on user_id — which we already have from the scroll.
   if (!ids.length) return;
   await fetch(`${QDRANT_API}/collections/${collection}/points/delete`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ points: ids })
+  });
+}
+
+async function qdrantDeleteByFilter(collection, filter) {
+  await fetch(`${QDRANT_API}/collections/${collection}/points/delete`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ filter })
   });
 }
 
@@ -432,33 +442,49 @@ async function clearAll() {
     log.push(`Phoenix: ${ct} test projects deleted`);
   } catch(e) { log.push(`Phoenix: ${e.message}`); }
 
-  // 3. Qdrant: delete test user profiles (case-insensitive prefix match)
+  // 3. Qdrant: delete test user profiles by display_name prefix
+  // (Uses filter-based delete — point IDs overflow JavaScript Number precision)
   try {
     const points = await qdrantScroll('user_profiles');
     const realUsers = new Set(['sean', 'seli']);
-    const testIds = points
-      .filter(p => {
-        const dn = (p.payload?.display_name || '').toLowerCase();
-        if (realUsers.has(dn)) return false;
-        return TEST_USER_PREFIXES.some(pfx => dn.startsWith(pfx.toLowerCase()));
-      })
-      .map(p => p.id);
-    await qdrantDelete('user_profiles', testIds);
-    log.push(`Qdrant profiles: ${testIds.length} deleted, ${points.length - testIds.length} kept`);
+    let deleted = 0;
+    for (const p of points) {
+      const dn = (p.payload?.display_name || '').toLowerCase();
+      if (realUsers.has(dn)) continue;
+      if (TEST_USER_PREFIXES.some(pfx => dn.startsWith(pfx.toLowerCase()))) {
+        const uid = p.payload?.user_id;
+        if (uid) {
+          await qdrantDeleteByFilter('user_profiles', {
+            must: [{key: 'user_id', match: {value: uid}}]
+          });
+          deleted++;
+        }
+      }
+    }
+    log.push(`Qdrant profiles: ${deleted} deleted, ${points.length - deleted} kept`);
   } catch(e) { log.push(`Qdrant profiles: ${e.message}`); }
 
   // 4. Qdrant: delete test notes (keep only known real user notes)
   try {
     const realUsers = new Set(['sean', 'seli']);
     const points = await qdrantScroll('cca_notes');
-    const testIds = points
-      .filter(p => {
-        const uid = (p.payload?.user_id || '').toLowerCase();
-        return !realUsers.has(uid);
-      })
-      .map(p => p.id);
-    await qdrantDelete('cca_notes', testIds);
-    log.push(`Qdrant notes: ${testIds.length} deleted, ${points.length - testIds.length} kept`);
+    // Collect non-real user_ids to delete
+    const testUserIds = new Set();
+    for (const p of points) {
+      const uid = (p.payload?.user_id || '').toLowerCase();
+      if (uid && !realUsers.has(uid)) {
+        testUserIds.add(p.payload?.user_id);
+      }
+    }
+    let deleted = 0;
+    for (const uid of testUserIds) {
+      await qdrantDeleteByFilter('cca_notes', {
+        must: [{key: 'user_id', match: {value: uid}}]
+      });
+      deleted++;
+    }
+    const kept = points.length - points.filter(p => testUserIds.has(p.payload?.user_id)).length;
+    log.push(`Qdrant notes: ${testUserIds.size} user(s) cleared, ${kept} kept`);
   } catch(e) { log.push(`Qdrant notes: ${e.message}`); }
 
   // 5. Redis: delete test sessions via CCA server
