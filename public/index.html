@@ -450,15 +450,15 @@ async function clearAll() {
     let deleted = 0;
     for (const p of points) {
       const dn = (p.payload?.display_name || '').toLowerCase();
+      // Keep ONLY known real users — delete everything else
+      // (test users, garbage profiles, broken sessions)
       if (realUsers.has(dn)) continue;
-      if (TEST_USER_PREFIXES.some(pfx => dn.startsWith(pfx.toLowerCase()))) {
-        const uid = p.payload?.user_id;
-        if (uid) {
-          await qdrantDeleteByFilter('user_profiles', {
-            must: [{key: 'user_id', match: {value: uid}}]
-          });
-          deleted++;
-        }
+      const uid = p.payload?.user_id;
+      if (uid) {
+        await qdrantDeleteByFilter('user_profiles', {
+          must: [{key: 'user_id', match: {value: uid}}]
+        });
+        deleted++;
       }
     }
     log.push(`Qdrant profiles: ${deleted} deleted, ${points.length - deleted} kept`);
