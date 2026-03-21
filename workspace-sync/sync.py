@@ -144,6 +144,13 @@ def clone_repo(repo: dict, credentials: dict[str, dict]) -> bool:
         )
         return False
 
+    # Fix ownership so CCA container (uid 1000) can write to workspace
+    try:
+        import subprocess
+        subprocess.run(["chown", "-R", "1000:1000", dest], check=False)
+    except Exception:
+        pass  # Non-fatal — may not have permission in all environments
+
     # Migration repos: configure git user so CCA can commit/push
     if repo.get("type") == "migration":
         git("config", "user.name", "cca", cwd=dest)

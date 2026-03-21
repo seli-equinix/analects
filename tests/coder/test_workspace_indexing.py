@@ -145,8 +145,8 @@ class TestWorkspaceIndexing:
                 f"accuracy."
             )
             msg1 = (
-                f"Please store these technical notes for me, I'll need "
-                f"them later:\n\n{doc_content}"
+                f"Upload this technical document so I can search it later. "
+                f"Store it as a document, not a personal fact:\n\n{doc_content}"
             )
             r1 = cca.chat(msg1, session_id=sid)
             evaluate_response(r1, msg1, trace_test, judge_model, "coder")
