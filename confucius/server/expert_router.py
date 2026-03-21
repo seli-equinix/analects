@@ -1275,6 +1275,9 @@ async def classify_request(
         decision = _guard_recall_not_clarify(decision, user_message)
         decision = _guard_clarify_has_task(decision, user_message)
 
+        # Guards for USER — document storage needs coder's document tools
+        decision = _guard_document_not_user(decision, user_message)
+
         # Guards for SEARCH — project references need coder's codebase tools
         decision = _guard_project_not_search(decision, user_message)
         decision = _guard_search_scope_codebase(decision, user_message)
@@ -1588,6 +1591,31 @@ def _guard_clarify_has_task(
         )
         decision.expert = ExpertType.CODER
         decision.clarification_question = ""
+        if decision.estimated_steps < 3:
+            decision.estimated_steps = 3
+        return decision
+
+    return decision
+
+
+def _guard_document_not_user(
+    decision: RouteDecision, user_message: str
+) -> RouteDecision:
+    """Override user→coder if the message contains document storage requests.
+
+    The USER route has no document tools (upload_document, search_documents).
+    Storing large text, technical notes, architecture docs, or reference
+    material requires the CODER route's document extension.
+    """
+    if decision.expert != ExpertType.USER:
+        return decision
+
+    if _DOCUMENT_PATTERNS.search(user_message):
+        logger.warning(
+            "Router guard: overriding user→coder for document request: %s",
+            user_message[:80],
+        )
+        decision.expert = ExpertType.CODER
         if decision.estimated_steps < 3:
             decision.estimated_steps = 3
         return decision
