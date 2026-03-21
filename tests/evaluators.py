@@ -709,6 +709,12 @@ def evaluate_response(
                 "score": ev["score"],
                 "explanation": ev.get("explanation", ""),
             })
+    # Accumulate per-turn eval results for .md report generation
+    if hasattr(trace_span, "_test_metrics"):
+        trace_span._test_metrics.setdefault("_evals", []).append(
+            list(evals.values())
+        )
+
     elif span_id:
         # Fallback: post immediately if no deferred queue (shouldn't happen)
         for ev in evals.values():

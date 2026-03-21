@@ -234,6 +234,25 @@ def trace_test(request, phoenix_tracer):
             flush=True,
         )
 
+    # Generate .md test report for Claude Code review
+    if metrics:
+        try:
+            from tests.report_generator import generate_test_report
+
+            outcome_str = "PASSED"
+            if hasattr(request.node, "rep_call"):
+                outcome_str = request.node.rep_call.outcome.upper()
+
+            generate_test_report(
+                test_name=span_name.replace("::", "-"),
+                status=outcome_str,
+                turns=metrics.get("_turns", []),
+                metrics=metrics,
+                evals_per_turn=metrics.get("_evals"),
+            )
+        except Exception as e:
+            log.warning("Failed to generate test report: %s", e)
+
     # Inter-test cooldown: let vLLM drain its queue before the next test
     # starts a new LLM call. Without this, sequential tests pile up
     # requests and cause timeout cascades.

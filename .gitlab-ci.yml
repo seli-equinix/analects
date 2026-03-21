@@ -46,7 +46,9 @@ variables:
   timeout: 45m                    # Safety net only — the test client's SSE idle timeout (120s) is the real watchdog
   artifacts:
     when: always
-    paths: ["report-*.xml"]
+    paths:
+      - "report-*.xml"
+      - "reports/*.md"
     reports:
       junit: "report-*.xml"
     expire_in: 90 days
