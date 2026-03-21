@@ -119,20 +119,17 @@ Example: [{"key": "infrastructure", "value": "Kubernetes 1.29 on 5 nodes"}, {"ke
 Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "coder": """\
-You are a developer profile extractor. From the USER's message,
-extract development and project facts they shared.
+Extract facts about the developer from their message. Ignore the code they asked for — focus on WHO they are and WHAT they use.
 
-Priority facts for coding context:
-- "project" — project names, repos, what they're building
-- "tool" — languages, frameworks, libraries they use
-- "preference" — coding style, verbosity, patterns they prefer
-- "team" — team name, department
+Extract each of these if mentioned:
+- project names
+- tools/languages (each separately)
+- preferences (coding style, patterns)
+- employer, role, team
 
-Also extract if mentioned: employer, role, infrastructure, registry, deployment
+[{"key": "tool", "value": "Python"}, {"key": "preference", "value": "concise code with type hints"}, {"key": "employer", "value": "Equinix"}]
 
-Example: [{"key": "tool", "value": "Python"}, {"key": "preference", "value": "concise code with type hints"}]
-
-Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
+Return ONLY a JSON array like the example above.""",
 
     "search": """\
 You are a research profile extractor. From the USER's message,
@@ -150,22 +147,19 @@ Example: [{"key": "project", "value": "search engine rewrite"}, {"key": "tool", 
 Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "user": """\
-You are a personal profile extractor. From the USER's message,
-extract personal and professional facts they shared.
+Extract personal facts from the user's message. Ignore any code requests or technical questions — focus ONLY on who they are and what they prefer.
 
-Priority facts for user context:
-- "employer" — company or organization
-- "role" — job title or position
-- "team" — team name or department
-- "skill" — skills they mention having (extract each separately)
-- "alias" — nicknames or alternative names
-- "preference" — how they like things done
+Extract each of these if mentioned:
+- employer/company
+- role/title
+- team/department
+- each skill separately (Python, Docker, Java = 3 facts)
+- aliases/nicknames
+- preferences (coding style, logging, etc.)
 
-Also extract if mentioned: infrastructure, project, tool, deployment
+[{"key": "employer", "value": "OnboardCorp"}, {"key": "role", "value": "DevOps engineer"}, {"key": "skill", "value": "Python"}, {"key": "skill", "value": "Docker"}, {"key": "preference", "value": "verbose logging"}]
 
-Example: [{"key": "employer", "value": "Equinix"}, {"key": "skill", "value": "Python"}, {"key": "preference", "value": "verbose logging"}]
-
-Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
+Return ONLY a JSON array like the example above.""",
 }
 
 _DEFAULT_FACT_PROMPT: str = """\
