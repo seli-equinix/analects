@@ -102,37 +102,35 @@ Return valid JSON only, no markdown fences."""
 
 _ROUTE_FACT_PROMPTS: Dict[str, str] = {
     "infrastructure": """\
-You are an infrastructure profile extractor. From the USER's message,
-extract infrastructure and DevOps facts they shared.
+Extract infrastructure and DevOps facts from the user's message. The message may include commands or technical requests — extract facts from ALL of it.
 
-Priority facts for infrastructure context:
-- "infrastructure" — clusters, servers, nodes, architecture (e.g. "5-node Docker Swarm")
-- "registry" — container/package registries with URLs (e.g. "registry.acme.internal")
-- "deployment" — deployment tools and processes (e.g. "Portainer with GitOps")
-- "tool" — infrastructure tools (e.g. "Terraform", "Ansible")
-- "network" — network details, IPs, domains
+Extract each of these if mentioned:
+- infrastructure (clusters, servers, nodes, architecture)
+- registry URLs
+- deployment tools and processes
+- monitoring tools
+- network details, IPs, domains
+- employer, role, team, project, preferences
 
-Also extract if mentioned: employer, role, team, project, preference
+Input: "My cluster is Kubernetes 1.29 on 5 nodes. Registry at registry.internal:5000. I use Terraform and ArgoCD. Check my node status."
+Output: [{"key": "infrastructure", "value": "Kubernetes 1.29 on 5 nodes"}, {"key": "registry", "value": "registry.internal:5000"}, {"key": "tool", "value": "Terraform"}, {"key": "deployment", "value": "ArgoCD"}]
 
-Example: [{"key": "infrastructure", "value": "Kubernetes 1.29 on 5 nodes"}, {"key": "tool", "value": "Terraform"}]
-
-Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
+Return ONLY a JSON array like the Output above.""",
 
     "coder": """\
-You are a developer profile extractor. From the USER's message,
-extract development and project facts they shared.
+Extract facts about the developer from their message. The message may include code, architecture decisions, and technical requests — extract facts from ALL of it.
 
-Priority facts for coding context:
-- "project" — project names, repos, what they're building
-- "tool" — languages, frameworks, libraries they use
-- "preference" — coding style, verbosity, patterns they prefer
-- "team" — team name, department
+Extract each of these if mentioned:
+- project names and what they're building
+- tools/languages/frameworks (each separately)
+- preferences (coding style, patterns, error handling)
+- employer, role, team
+- infrastructure details (clusters, registries, deployment tools)
 
-Also extract if mentioned: employer, role, infrastructure, registry, deployment
+Input: "I prefer concise code with type hints. I'm building a REST API in FastAPI for the EVA project. Write me a database connection function."
+Output: [{"key": "preference", "value": "concise code with type hints"}, {"key": "tool", "value": "FastAPI"}, {"key": "project", "value": "EVA"}]
 
-Example: [{"key": "tool", "value": "Python"}, {"key": "preference", "value": "concise code with type hints"}]
-
-Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
+Return ONLY a JSON array like the Output above.""",
 
     "search": """\
 You are a research profile extractor. From the USER's message,
@@ -150,22 +148,22 @@ Example: [{"key": "project", "value": "search engine rewrite"}, {"key": "tool", 
 Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
 
     "user": """\
-You are a personal profile extractor. From the USER's message,
-extract personal and professional facts they shared.
+Extract personal and professional facts from the user's message. The message may include code requests or technical questions — extract facts from ALL parts of the message including technical context.
 
-Priority facts for user context:
-- "employer" — company or organization
-- "role" — job title or position
-- "team" — team name or department
-- "skill" — skills they mention having (extract each separately)
-- "alias" — nicknames or alternative names
-- "preference" — how they like things done
+Extract each of these if mentioned:
+- employer/company
+- role/title
+- team/department
+- each skill separately (Python, Docker, Java = 3 separate facts)
+- aliases/nicknames
+- preferences (coding style, logging, error handling, etc.)
+- project names they mention working on
+- tools/infrastructure they describe using
 
-Also extract if mentioned: infrastructure, project, tool, deployment
+Input: "Hi I'm Sean. I'm a DevOps engineer at Equinix. I know Python, Docker, and Terraform. I prefer verbose logging. Write me a health check function."
+Output: [{"key": "employer", "value": "Equinix"}, {"key": "role", "value": "DevOps engineer"}, {"key": "skill", "value": "Python"}, {"key": "skill", "value": "Docker"}, {"key": "skill", "value": "Terraform"}, {"key": "preference", "value": "verbose logging"}]
 
-Example: [{"key": "employer", "value": "Equinix"}, {"key": "skill", "value": "Python"}, {"key": "preference", "value": "verbose logging"}]
-
-Return ONLY a JSON array. Return [] if no facts found. No markdown.""",
+Return ONLY a JSON array like the Output above.""",
 }
 
 _DEFAULT_FACT_PROMPT: str = """\
