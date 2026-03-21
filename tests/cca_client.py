@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -186,6 +187,33 @@ class CCAClient:
 
         return issues
 
+    def _start_health_monitor(self) -> tuple:
+        """Start a background thread that checks backend health every 15s.
+
+        Returns (stop_event, issues_dict, thread). Call stop_event.set()
+        when done. Any backend failures detected during monitoring are
+        stored in issues_dict.
+        """
+        issues: Dict[str, Any] = {}
+        stop = threading.Event()
+
+        def _monitor() -> None:
+            while not stop.is_set():
+                stop.wait(15)
+                if stop.is_set():
+                    break
+                try:
+                    found = self.check_backends()
+                    if found:
+                        issues.update(found)
+                        log.warning("Backend issue during stream: %s", found)
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_monitor, daemon=True)
+        t.start()
+        return stop, issues, t
+
     def chat(
         self,
         message: str,
@@ -213,6 +241,11 @@ class CCAClient:
         session_id = session_id or f"test-{uuid.uuid4().hex[:12]}"
         read_timeout = idle_timeout or self.idle_timeout
         max_attempts = 2  # 1 try + 1 retry for transient errors
+
+        # Background health monitor — checks backends every 15s during
+        # streaming. Detects vLLM/CCA crashes within seconds instead of
+        # waiting for a hard timeout.
+        monitor_stop, health_issues, monitor_thread = self._start_health_monitor()
 
         # Capture the parent (test) span BEFORE starting the cca.chat child span.
         # Inside the child span, trace.get_current_span() returns the child,
@@ -306,6 +339,16 @@ class CCAClient:
                         )
 
                     span.set_status(StatusCode.OK)
+
+                    # Stop health monitor and attach any issues found
+                    monitor_stop.set()
+                    monitor_thread.join(timeout=2)
+                    if health_issues:
+                        result.raw["_backend_issues"] = dict(health_issues)
+                        span.set_attribute(
+                            "cca.backend_issues", str(health_issues),
+                        )
+
                     return result
 
                 except Exception as e:
@@ -322,9 +365,12 @@ class CCAClient:
                     span.set_attribute("cca.error", str(e))
                     span.set_attribute("cca.duration_ms", elapsed_ms)
                     span.set_status(StatusCode.ERROR, str(e)[:500])
+                    monitor_stop.set()
+                    monitor_thread.join(timeout=2)
                     raise
 
             # Should not reach here, but satisfy type checker
+            monitor_stop.set()
             raise last_error  # type: ignore[misc]
 
     def _stream_chat(

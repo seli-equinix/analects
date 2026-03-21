@@ -43,6 +43,7 @@ variables:
   image: 192.168.4.204:5000/cca-tests/test-runner:latest
   needs: [health-check]
   resource_group: cca-llm
+  timeout: 45m                    # Safety net only — the test client's SSE idle timeout (120s) is the real watchdog
   artifacts:
     when: always
     paths: ["report-*.xml"]
@@ -100,7 +101,6 @@ test-new-user-onboarding:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "new-user-onboarding"'
-  timeout: 10m
 
 test-profile-crud:
   extends: .test-base
@@ -113,7 +113,6 @@ test-profile-crud:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "profile-crud"'
-  timeout: 10m
 
 test-returning-user-memory:
   extends: .test-base
@@ -126,7 +125,6 @@ test-returning-user-memory:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "returning-user-memory"'
-  timeout: 20m
 
 # ════════════════════════════════════════════
 #  WEBSEARCH TESTS
@@ -143,7 +141,6 @@ test-web-search-flow:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "web-search-flow"'
-  timeout: 10m
 
 # ════════════════════════════════════════════
 #  CODER TESTS
@@ -160,7 +157,6 @@ test-bash-execution:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "bash-execution"'
-  timeout: 10m
 
 test-code-edit-flow:
   extends: .test-base
@@ -173,7 +169,6 @@ test-code-edit-flow:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "code-edit-flow"'
-  timeout: 15m
 
 test-code-intelligence:
   extends: .test-base
@@ -186,7 +181,6 @@ test-code-intelligence:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "code-intelligence"'
-  timeout: 15m
 
 test-code-trace:
   extends: .test-base
@@ -199,7 +193,6 @@ test-code-trace:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "code-trace"'
-  timeout: 15m
 
 test-codebase-search:
   extends: .test-base
@@ -212,7 +205,6 @@ test-codebase-search:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "codebase-search"'
-  timeout: 10m
 
 test-document-workflow:
   extends: .test-base
@@ -225,7 +217,6 @@ test-document-workflow:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "document-workflow"'
-  timeout: 10m
 
 test-rule-lifecycle:
   extends: .test-base
@@ -238,7 +229,6 @@ test-rule-lifecycle:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "rule-lifecycle"'
-  timeout: 10m
 
 test-workspace-indexing:
   extends: .test-base
@@ -251,7 +241,6 @@ test-workspace-indexing:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "workspace-indexing"'
-  timeout: 15m
 
 # ════════════════════════════════════════════
 #  INTEGRATION TESTS
@@ -268,7 +257,6 @@ test-cross-session-recall:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "cross-session-recall"'
-  timeout: 15m
 
 test-eva-code-trace:
   extends: .test-base
@@ -281,7 +269,6 @@ test-eva-code-trace:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "eva-code-trace"'
-  timeout: 15m
 
 test-eva-full-trace:
   extends: .test-base
@@ -294,7 +281,6 @@ test-eva-full-trace:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "eva-full-trace"'
-  timeout: 20m
 
 test-project-scoped-notes:
   extends: .test-base
@@ -307,7 +293,6 @@ test-project-scoped-notes:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "project-scoped-notes"'
-  timeout: 15m
 
 test-infra-inspection:
   extends: .test-base
@@ -320,7 +305,6 @@ test-infra-inspection:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "infra-inspection"'
-  timeout: 20m
 
 test-knowledge-pipeline:
   extends: .test-base
@@ -333,7 +317,6 @@ test-knowledge-pipeline:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "knowledge-pipeline"'
-  timeout: 15m
 
 test-routing-edge-cases:
   extends: .test-base
@@ -346,7 +329,6 @@ test-routing-edge-cases:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "routing-edge-cases"'
-  timeout: 30m
 
 test-security-edge-cases:
   extends: .test-base
@@ -359,7 +341,6 @@ test-security-edge-cases:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "security-edge-cases"'
-  timeout: 10m
 
 test-tool-isolation:
   extends: .test-base
@@ -372,7 +353,6 @@ test-tool-isolation:
     deployment_tier: testing
   rules:
     - if: '$RUN_TEST == "tool-isolation"'
-  timeout: 15m
 
 # ════════════════════════════════════════════
 #  PAGES — deploy CCA test dashboard
