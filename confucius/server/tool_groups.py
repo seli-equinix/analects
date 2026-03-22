@@ -210,8 +210,21 @@ def _build_extension_for_group(
 
     elif group == ToolGroup.SHELL:
         if commands is not None:
+            # Infrastructure route: block destructive commands that modify
+            # or destroy data without user confirmation.
+            disallowed = {}
+            if expert == ExpertType.INFRASTRUCTURE:
+                disallowed = {
+                    "docker system prune": "Destructive: removes unused data. Ask user first.",
+                    "docker image prune": "Destructive: removes unused images. Ask user first.",
+                    "docker volume prune": "Destructive: removes unused volumes. Ask user first.",
+                    "docker container prune": "Destructive: removes stopped containers. Ask user first.",
+                    "docker builder prune": "Destructive: removes build cache. Ask user first.",
+                    "docker network prune": "Destructive: removes unused networks. Ask user first.",
+                }
             return CommandLineExtension(
                 allowed_commands=commands,
+                disallowed_commands=disallowed,
                 max_output_lines=500 if expert == ExpertType.INFRASTRUCTURE else 300,
                 allow_bash_script=True,
                 enable_tool_use=True,
