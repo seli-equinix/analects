@@ -533,10 +533,27 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
                 )
             return ""  # Don't stream to user — only 80B speaks
 
-        # Primary (80B) path — track how much text it streamed to the user.
-        # If substantial (> 200 chars), synthesis is skipped to prevent
-        # duplicate output.  Short progress updates don't count.
+        # Primary (80B) path — track what was streamed and suppress
+        # duplicates.  The orchestrator loop can call the LLM multiple
+        # times (e.g., iteration N produces the response, iteration N+1
+        # synthesis repeats it).  Hashing the first 500 chars catches
+        # exact repeats without blocking legitimately different content
+        # (e.g., plan in iter 1, code in iter 2).
         if text.strip():
+            text_hash = hash(text.strip()[:500])
+            if (
+                self._last_streamed_hash
+                and text_hash == self._last_streamed_hash
+                and len(text.strip()) > 100  # Only suppress substantial repeats
+            ):
+                logger.info(
+                    "Dual-model: suppressing duplicate 80B output "
+                    "(%d chars, matches previous iteration)",
+                    len(text),
+                )
+                return ""  # Don't stream duplicate to user
+
+            self._last_streamed_hash = text_hash
             self._primary_streamed_chars += len(text.strip())
 
         return await super().on_llm_output(text, context)
@@ -1389,6 +1406,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         # complete answer.  Only the FINAL text (after all tools finish)
         # should be considered for the synthesis-skip threshold.
         self._primary_streamed_chars = 0
+        self._last_streamed_hash: int = 0
 
         # Count research tool calls for monitoring
         self._search_call_count += sum(
