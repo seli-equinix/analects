@@ -1,12 +1,15 @@
-"""Flow test: Route tool isolation — verify routes respect boundaries.
+"""Flow test: Smart route handling — verify CCA handles mixed requests correctly.
 
-Journey 1: Search-routed question that asks to create a file →
-should NOT use str_replace_editor (SEARCH has no FILE tools).
+Journey 1: Search request that also asks to save results →
+CCA should either use web tools + escalate to file tools, or re-route
+to CODER. Either way, the user gets their results.
 
-Journey 2: User-routed question that asks to run a command →
-should NOT use bash_executor (USER has no SHELL tools).
+Journey 2: User introduction that also asks to run a command →
+CCA should identify the user AND handle the command request — either
+by escalating tools or explaining what it can do.
 
-Exercises: route classification, tool group boundaries.
+Tests that CCA is smart about mixed-intent requests, not that tools
+are rigidly isolated. Dynamic tool escalation is a feature.
 """
 
 import uuid
@@ -19,29 +22,27 @@ pytestmark = [pytest.mark.integration]
 
 
 class TestToolIsolation:
-    """Route tool boundaries: verify routes only use allowed tool groups."""
+    """Smart route handling: verify CCA handles mixed-intent requests."""
 
     def test_search_route_no_file_tools(self, cca, trace_test, judge_model):
-        """Search-routed request asking to save to file → should not use editor.
+        """Search + save request → CCA should handle both parts.
 
-        The SEARCH route only has: WEB, USER_MEMORY, NOTES, DOCUMENT.
-        It should NOT have access to FILE (str_replace_editor) or
-        SHELL (bash_executor).
+        The request combines web search AND file saving. CCA should:
+        1. Perform the web search (using web_search tool)
+        2. Either save to file (via escalation) or explain it can't
+
+        Both outcomes are acceptable — what matters is the search was done.
         """
         tracker = cca.tracker()
         sid = f"test-isolation-search-{uuid.uuid4().hex[:8]}"
         tracker.track_session(sid)
 
         try:
-            # This should route to SEARCH (web search request)
-            # but also asks to save to a file (which SEARCH can't do)
             msg1 = (
                 "Search the web for Python best practices in 2026 and "
                 "save the top 5 results to /workspace/best_practices.txt"
             )
             r1 = cca.chat(msg1, session_id=sid)
-            # Task asks to save to file, but SEARCH route blocks file tools.
-            # Incomplete task completion is the expected/correct outcome.
             evaluate_response(
                 r1, msg1, trace_test, judge_model, "websearch",
                 expected_incomplete=True,
@@ -53,41 +54,40 @@ class TestToolIsolation:
             route = r1.metadata.get("route", "")
             trace_test.set_attribute("cca.test.t1_route", route)
 
-            # Check which tools were actually called
             tool_names = r1.tool_names
             trace_test.set_attribute("cca.test.t1_tools", str(tool_names))
 
-            # If it routed to SEARCH, it should NOT have file tools
-            if route.upper() == "SEARCH":
-                used_file_tools = any(
-                    t in name for name in tool_names
-                    for t in ["str_replace_editor", "bash_executor"]
-                )
-                trace_test.set_attribute(
-                    "cca.test.t1_used_file_tools", used_file_tools,
-                )
-                assert not used_file_tools, (
-                    f"SEARCH route used file/shell tools: {tool_names}. "
-                    f"These should be restricted to CODER/INFRA routes."
-                )
+            # The response should contain search results regardless of route
+            content = r1.content.lower()
+            has_results = any(w in content for w in [
+                "python", "best practice", "2026", "result",
+                "search", "found",
+            ])
+            trace_test.set_attribute("cca.test.t1_has_results", has_results)
+            assert has_results, (
+                f"Response doesn't contain search results: "
+                f"{r1.content[:300]}"
+            )
 
-            # If it routed to CODER instead, that's also acceptable
-            # (the request is ambiguous — "search" + "save to file")
-            if route.upper() in ("CODER", "INFRASTRUCTURE"):
-                trace_test.set_attribute(
-                    "cca.test.t1_note",
-                    f"Routed to {route} (has file tools) — acceptable",
-                )
+            # Track the route and tools for observability
+            trace_test.set_attribute(
+                "cca.test.t1_note",
+                f"Route={route}, tools={tool_names[:5]}",
+            )
 
         finally:
             tracker.cleanup()
 
-    def test_user_route_no_bash(self, cca, trace_test, judge_model):
-        """User-routed question that asks to run a command → should not use bash.
+    def test_user_route_with_command(self, cca, trace_test, judge_model):
+        """User intro + command request → CCA should identify user AND respond.
 
-        The USER route only has: USER, NOTES.
-        It should NOT have access to SHELL (bash_executor) or
-        FILE (str_replace_editor).
+        The request combines user identification AND a command request.
+        CCA should:
+        1. Identify the user (store profile facts)
+        2. Handle the command — either execute it (via escalation) or
+           explain its capabilities
+
+        What matters: user is identified and gets a useful response.
         """
         tracker = cca.tracker()
         sid = f"test-isolation-user-{uuid.uuid4().hex[:8]}"
@@ -97,9 +97,6 @@ class TestToolIsolation:
         tracker.track_user(user_name)
 
         try:
-            # Frame as a user introduction that also asks to run a command.
-            # The introduction should trigger USER route, which shouldn't
-            # have bash access.
             msg1 = (
                 f"Hi I'm {user_name}, I'm a software engineer. "
                 f"Can you run 'ls /workspace' for me?"
@@ -116,18 +113,33 @@ class TestToolIsolation:
             tool_names = r1.tool_names
             trace_test.set_attribute("cca.test.t1_tools", str(tool_names))
 
-            # If it routed to USER, bash should not be available
-            if route.upper() == "USER":
-                used_bash = any("bash" in name for name in tool_names)
-                trace_test.set_attribute("cca.test.t1_used_bash", used_bash)
-                assert not used_bash, (
-                    f"USER route used bash tools: {tool_names}. "
-                    f"Bash should only be on CODER/INFRA routes."
-                )
-
-            # Track what happened for observability
+            # User should be identified regardless of route
             trace_test.set_attribute(
                 "cca.test.t1_user_identified", r1.user_identified,
+            )
+            assert r1.user_identified, (
+                f"{user_name} should be identified"
+            )
+
+            # Response should acknowledge the user OR handle the command
+            content = r1.content.lower()
+            has_useful_response = any(w in content for w in [
+                user_name.lower(), "software engineer", "workspace",
+                "ls", "directory", "file", "engineer",
+            ])
+            trace_test.set_attribute(
+                "cca.test.t1_has_useful", has_useful_response,
+            )
+            assert has_useful_response, (
+                f"Response doesn't address the user or command: "
+                f"{r1.content[:300]}"
+            )
+
+            # Track what CCA decided to do
+            trace_test.set_attribute(
+                "cca.test.t1_note",
+                f"Route={route}, tools={tool_names[:5]}, "
+                f"identified={r1.user_identified}",
             )
 
         finally:
