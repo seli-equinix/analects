@@ -189,6 +189,9 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
     # Post-completion synthesis: track whether tools ran and synthesis done
     _had_tool_iterations: bool = PrivateAttr(default=False)
     _synthesis_done: bool = PrivateAttr(default=False)
+    # Hash of last 80B output — suppresses duplicate responses across iterations
+    _last_streamed_hash: int = PrivateAttr(default=0)
+    _primary_streamed_chars: int = PrivateAttr(default=0)
     # Tool-nudge: re-prompt once if model describes intent but doesn't call tools
     _tool_nudge_done: bool = PrivateAttr(default=False)
     # Post-error nudge: after a tool failure, if model describes what it would
@@ -1406,7 +1409,7 @@ class DualModelOrchestrator(AnthropicLLMOrchestrator):
         # complete answer.  Only the FINAL text (after all tools finish)
         # should be considered for the synthesis-skip threshold.
         self._primary_streamed_chars = 0
-        self._last_streamed_hash: int = 0
+        self._last_streamed_hash = 0
 
         # Count research tool calls for monitoring
         self._search_call_count += sum(
