@@ -277,14 +277,26 @@ def eval_user_identified(result: ChatResult) -> Optional[Dict[str, Any]]:
     }
 
 
-# Refusal patterns — LLM said "I can't" instead of using tools
+# Refusal patterns — LLM explicitly said it can't do the requested task.
+# IMPORTANT: patterns must be specific enough to avoid false positives.
+# "i don't have a" is too broad — matches "I don't have any context" which
+# is a legitimate statement. Only match clear refusals.
 _REFUSAL_PATTERNS = [
-    "i don't have access", "i don't have a", "not available in my",
-    "no tools available", "i can't access", "i cannot access",
-    "not in my current toolset", "don't have the ability",
-    "i'm unable to", "i am unable to", "outside my capabilities",
-    "i lack the tools", "no function available", "tool is not available",
-    "i don't currently have",
+    "i don't have access to your",
+    "i don't have access to the file",
+    "i don't have access to real",
+    "i can't access your",
+    "i cannot access your",
+    "not in my current toolset",
+    "don't have the ability to execute",
+    "i'm unable to perform",
+    "i am unable to perform",
+    "outside my capabilities",
+    "i lack the tools",
+    "no function available",
+    "tool is not available",
+    "i don't have the tools",
+    "i cannot execute",
 ]
 
 
