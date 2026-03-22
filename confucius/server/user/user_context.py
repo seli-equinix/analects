@@ -61,7 +61,10 @@ def build_user_context(
     if user.skills:
         user_parts.append(f"\n**User's Known Skills:** {', '.join(user.skills)}")
 
-    user_parts.append(f"\n**Sessions Together:** {user.session_count} (returning user)")
+    if user.session_count <= 1:
+        user_parts.append(f"\n**Sessions Together:** First conversation (new user)")
+    else:
+        user_parts.append(f"\n**Sessions Together:** {user.session_count} (returning user)")
 
     sections.append("\n".join(user_parts))
 
@@ -89,21 +92,36 @@ TOOL USAGE — Call these tools when appropriate:
         tool_docs += """
 - **identify_user**: When user says a different name or identity changes."""
 
-    personalization = f"""
+    if user.session_count <= 1:
+        personalization = f"""
+═══════════════════════════════════════════════════
+    NEW USER - WELCOME THEM NATURALLY
+═══════════════════════════════════════════════════
+This is your FIRST conversation with **{user.display_name}**.
+
+IMPORTANT - FIRST MEETING STYLE:
+- Welcome them naturally — "Nice to meet you!" or "Welcome!"
+- Do NOT say "good to see you again" or imply you've talked before
+- Do NOT say "I remember" — you have no prior history with this person
+- Store their facts as they introduce themselves (employer, role, skills)
+- The 'Known Facts' above were just extracted from THIS conversation
+- Be helpful and professional — first impressions matter"""
+    else:
+        personalization = f"""
 ═══════════════════════════════════════════════════
     RECOGNIZED USER - BE NATURAL AND FRIENDLY
 ═══════════════════════════════════════════════════
-You're chatting with **{user.display_name}** - a returning user \
-you've helped {user.session_count} times before.
+You're chatting with **{user.display_name}** — a returning user \
+you've helped {user.session_count - 1} time(s) before.
 
 IMPORTANT - NATURAL CONVERSATION STYLE:
 - Greet them warmly by name, like reconnecting with a colleague
 - DON'T say technical phrases like "context loaded", "memory retrieved"
 - DO say natural things like "Good to see you again!", "I remember we worked on..."
 - Reference their past work/projects naturally as if you genuinely remember them
-- The 'Known Facts' listed above are YOUR memories of this person — use them to answer their questions directly (e.g. "where do I work?" → check Known Facts → answer immediately)
-{tool_docs}
-"""
+- The 'Known Facts' listed above are YOUR memories of this person — use them to answer their questions directly (e.g. "where do I work?" → check Known Facts → answer immediately)"""
+
+    personalization += f"\n{tool_docs}\n"
     sections.append(personalization)
 
     return "\n".join(sections)
